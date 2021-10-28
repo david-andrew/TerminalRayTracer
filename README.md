@@ -12,5 +12,6 @@ clang TerminalRayTracer.c -lm && ./a.out
  1. actual ray tracing
  1. floor
  1. lighting
+ 1. convert to CUDA to run on GPU
  1. materials
  1. other shapes
