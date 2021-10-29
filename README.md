@@ -1,6 +1,8 @@
 # Terminal Ray Tracer
 A ray tracer that runs in the terminal with no dependencies
 
+![Terminal Ray Tracer Demo Output](screenshot.png "Demo Output")
+
 ## how to use
 
 ```
