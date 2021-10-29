@@ -37,10 +37,11 @@
 #define SCREEN_WIDTH 80
 #define SCREEN_HEIGHT 80
 
-#define FRAME_RATE 60                //frames per second
-#define FRAME_DELAY 1.0 / FRAME_RATE //time between frames
-#define FRAME_DELAY_TV_SEC (int)FRAME_DELAY
-#define FRAME_DELAY_TV_NSEC (int)((FRAME_DELAY - FRAME_DELAY_TV_SEC) * 1000000000)
+#define FRAME_RATE 60                                              //frames per second
+#define FRAME_DURATION 1.0 / FRAME_RATE                            //time between frames
+#define FRAME_DURATION_NS (long long)(FRAME_DURATION * 1000000000) //nanoseconds between frames
+// #define FRAME_DELAY_TV_SEC (int)FRAME_DELAY
+// #define FRAME_DELAY_TV_NSEC (int)((FRAME_DELAY - FRAME_DELAY_TV_SEC) * 1000000000)
 
 //constants for the scene
 #define GROUND_PLANE_HEIGHT -2.0
@@ -190,7 +191,7 @@ void init_frame(Frame *frame)
 void init_camera(Camera *camera)
 {
     init_frame(&(camera->frame));
-    camera->screen_distance = 1.25;
+    camera->screen_distance = 2.0;
     camera->screen_width = 1.0;
     camera->screen_height = 1.0;
 }
@@ -495,6 +496,10 @@ int main()
     //seed the random number generator
     srand(time(0));
 
+    //get the time that the program starts
+    struct timespec start;
+    timespec_get(&start, TIME_UTC);
+
 //create a list of 6 spheres 1 for each direction in 3D
 #define NUM_SPHERES 6
     Sphere spheres[NUM_SPHERES] = {
@@ -505,32 +510,27 @@ int main()
         {.center = {.x = 0.0, .y = -0.25, .z = 0.0}, .material = {.color = {.x = 1.0, .y = 0.0, .z = 1.0}}, .radius = 0.125},
         {.center = {.x = 0.0, .y = 0.0, .z = -0.25}, .material = {.color = {.x = 1.0, .y = 1.0, .z = 0.0}}, .radius = 0.125},
     };
-    // Sphere s;
-    // init_random_sphere(&s);
-
-    //set sphere to known coordinates
-    // s.center.x = 0.25;
-    // s.center.y = 0.25;
-    // s.center.z = -3.0;
-    // s.radius = 0.5;
 
     //create a camera looking at the sphere from 2 meters away
+    //camera position will be set inside the while loop
     Camera camera;
     init_camera(&camera);
-    //camera position will be set inside the while loop
-    // camera.frame.origin.z = 10.0;
-    // camera.frame.origin.y = 2.0;
-    // camera.frame.origin.x = 2.0;
 
     //create a screen of size SCREEN_WIDTH x SCREEN_HEIGHT with statically allocated pixels
     Vector pixels[SCREEN_HEIGHT * SCREEN_WIDTH];
     Screen screen = {.pixels = (Vector *)pixels, .width = SCREEN_WIDTH, .height = SCREEN_HEIGHT};
 
     //loop forever. set each pixel on the screen to a random color and draw the screen to the terminal
-    int t = 0;
+    struct timespec ts; //keep track of the system time for computing the duration of frames
+    // double t = 0.0; //number of seconds elapsed since program started
     while (1)
     {
-        t++;
+        //get the current system time, get the number of nanoseconds elapsed since the start of the program
+        timespec_get(&ts, TIME_UTC);
+        long long start_nanos = (ts.tv_sec - start.tv_sec) * 1000000000 + ts.tv_nsec - start.tv_nsec;
+
+        //seconds that this frame occurred at
+        double t = (double)start_nanos / 1000000000.0;
 
         //set the screen to the background color
         //set each pixel on the screen to a random color
@@ -549,31 +549,34 @@ int main()
         //draw the screen to the terminal
         draw_screen(&screen);
 
-        //sleep the for frame delay milliseconds
-        const struct timespec delay = {.tv_sec = FRAME_DELAY_TV_SEC, .tv_nsec = FRAME_DELAY_TV_NSEC};
-        nanosleep(&delay, NULL);
-
-        //updated the position of the camera in the z direction by sin(time)
-        // camera.frame.origin.z = 10.0 + sin((double)t / 10.0) * 2.0;
-        //construct the transform of the camera
+        //construct the transform of the camera. the camera should orbit the center of the scene
         Frame tf0, tf1;
         init_frame(&tf0);
         init_frame(&tf1);
         init_frame(&(camera.frame));
-        rotate_basis_y(&tf0.basis, 2.0 * PI * t / 100.0);
-        rotate_basis_x(&tf0.basis, 2.0 * PI * t / 100.0);
-        Vector root_to_camera = {.x = 0.0, .y = 0.0, .z = 0.5};
+        rotate_basis_y(&tf0.basis, 2.0 * PI * t * 0.3);
+        rotate_basis_x(&tf0.basis, 2.0 * PI * t * 0.5);
+        Vector root_to_camera = {.x = 0.0, .y = 0.0, .z = 1.0};
         add_vectors((Vector *)&tf1.origin, &root_to_camera);
         transform_frame(&camera.frame, &tf1);
         transform_frame(&camera.frame, &tf0);
 
-        // orbit_camera(&camera, 0.05);
+        //compute the amount of time the frame computations took
+        timespec_get(&ts, TIME_UTC);
+        long long end_nanos = (ts.tv_sec - start.tv_sec) * 1000000000 + ts.tv_nsec - start.tv_nsec;
+        long long frame_time_nanos = end_nanos - start_nanos;
 
-        // //print the current time at the bottom of the frame
-        // printf("\033[%d;0H", screen.height);
-        // printf("%f\n", time(0));
-        // //return the cursor to the top of the terminal
-        // printf("\033[0;0H");
+        //sleep the remaining time in the frame
+        if (FRAME_DURATION_NS > frame_time_nanos)
+        {
+            long long nanos_to_sleep = FRAME_DURATION_NS - frame_time_nanos;
+            const struct timespec delay = {.tv_sec = nanos_to_sleep / 1000000000, .tv_nsec = nanos_to_sleep % 1000000000};
+            nanosleep(&delay, NULL);
+        }
+
+        //print the number of nanoseconds at the bottom of the terminal, and then move the cursor back to the top
+        // printf("%lld\n", program_nanos);
+        // printf("\033[1;1H");
     }
 }
 
