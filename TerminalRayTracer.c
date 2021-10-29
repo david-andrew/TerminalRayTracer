@@ -34,8 +34,8 @@
 #define PI 3.14159265358979323846
 
 //constants for the screen
-#define SCREEN_WIDTH 280
-#define SCREEN_HEIGHT 280
+#define SCREEN_WIDTH 80
+#define SCREEN_HEIGHT 80
 
 #define FRAME_RATE 60                                              //frames per second
 #define FRAME_DURATION 1.0 / FRAME_RATE                            //time between frames
@@ -62,7 +62,7 @@ typedef struct
     double z;
 } Vector;
 
-Vector SKY_COLOR = {0.0, 0.0, 0.0};
+Vector SKY_COLOR = {137.0 / 255, 196.0 / 255, 244.0 / 255};
 Vector BACKGROUND_COLOR = {0.0, 0.0, 0.0};
 
 //struct for a basis, i.e. x y and z axis of a reference frame
@@ -523,9 +523,9 @@ void project_scene(Scene *scene, Screen *screen)
             }
 
             //set the color of this pixel in the screen
-            if (bounces > 0)
+            // if (bounces > 0)
             {
-                scale_vector(&pixel_color, 1.0 / bounces);
+                scale_vector(&pixel_color, 1.0 / (bounces + 1));
             }
             screen->pixels[row * screen->width + column] = pixel_color;
         }
@@ -604,9 +604,9 @@ int main()
 //create a list of 6 spheres 1 for each direction in 3D
 #define NUM_SPHERES 6
     Sphere spheres[NUM_SPHERES] = {
-        {.center = {.x = 0.25, .y = 0.0, .z = 0.0}, .material = {.color = {.x = 1.0, .y = 0.0, .z = 0.0}}, .radius = 0.125},
-        {.center = {.x = 0.0, .y = 0.25, .z = 0.0}, .material = {.color = {.x = 0.0, .y = 1.0, .z = 0.0}}, .radius = 0.125},
-        {.center = {.x = 0.0, .y = 0.0, .z = 0.25}, .material = {.color = {.x = 0.0, .y = 0.0, .z = 1.0}}, .radius = 0.125},
+        {.center = {.x = 0.25, .y = 0.0, .z = 0.0}, .material = {.color = {.x = 1.0, .y = 1.0, .z = 1.0}}, .radius = 0.125},
+        {.center = {.x = 0.0, .y = 0.25, .z = 0.0}, .material = {.color = {.x = 0.5, .y = 0.5, .z = 0.5}}, .radius = 0.125},
+        {.center = {.x = 0.0, .y = 0.0, .z = 0.25}, .material = {.color = {.x = 0.0, .y = 0.0, .z = 0.0}}, .radius = 0.125},
         {.center = {.x = -0.25, .y = 0.0, .z = 0.0}, .material = {.color = {.x = 0.0, .y = 1.0, .z = 1.0}}, .radius = 0.125},
         {.center = {.x = 0.0, .y = -0.25, .z = 0.0}, .material = {.color = {.x = 1.0, .y = 0.0, .z = 1.0}}, .radius = 0.125},
         {.center = {.x = 0.0, .y = 0.0, .z = -0.25}, .material = {.color = {.x = 1.0, .y = 1.0, .z = 0.0}}, .radius = 0.125},
