@@ -34,8 +34,8 @@
 #define PI 3.14159265358979323846
 
 //constants for the screen
-#define SCREEN_WIDTH 80
-#define SCREEN_HEIGHT 80
+#define SCREEN_WIDTH 180
+#define SCREEN_HEIGHT 180
 
 #define FRAME_RATE 60                                              //frames per second
 #define FRAME_DURATION 1.0 / FRAME_RATE                            //time between frames
@@ -44,7 +44,16 @@
 #define BOUNCE_LIMIT 10 // number of times a ray can bounce before it is considered a shadow
 
 //constants for the scene
-#define GROUND_PLANE_HEIGHT -2.0
+// #define GROUND_PLANE_HEIGHT -2.0
+
+//enum for the types of objects possible to hit in the scene
+typedef enum
+{
+    NONE,
+    SPHERE,
+    GROUND,
+    //TODO-> add more objects
+} Object_Type;
 
 //struct for a point
 typedef struct
@@ -62,8 +71,10 @@ typedef struct
     double z;
 } Vector;
 
-Vector SKY_COLOR = {137.0 / 255, 196.0 / 255, 244.0 / 255};
+Vector SKY_COLOR = {0.5372549019607842924, 0.7686274509803922017, 0.9568627450980392579};
 Vector BACKGROUND_COLOR = {0.0, 0.0, 0.0};
+Vector GROUND_EVEN_COLOR = {0.0, 0.0, 0.0};
+Vector GROUND_ODD_COLOR = {1.0, 1.0, 1.0};
 
 //struct for a basis, i.e. x y and z axis of a reference frame
 typedef struct
@@ -101,6 +112,15 @@ typedef struct
     Material material;
 } Sphere;
 
+//struct for a plane
+typedef struct
+{
+    Point point;
+    Vector normal;
+    Material even_material;
+    Material odd_material;
+} Plane;
+
 //struct for a camera. camera is represented by a frame looking at a screen
 typedef struct
 {
@@ -125,8 +145,8 @@ typedef struct
 {
     Sphere *spheres;
     int num_spheres;
+    Plane ground;
     Camera camera;
-    Screen screen;
 } Scene;
 
 //function to generate a random number between 0 and 1
@@ -331,12 +351,6 @@ void transform_frame(Frame *frame, Frame *transform)
     frame->origin = result_position;
 }
 
-// //function to orbit the camera around the origin
-// void orbit_camera(Camera *camera, double angle)
-// {
-//     rotate_basis_y(&(camera->frame.basis), angle);
-// }
-
 //function to reflect a vector about a normal vector
 void reflect_vector(Vector *vector, Vector *normal)
 {
@@ -382,47 +396,30 @@ int ray_intersects_sphere(Ray *ray, Sphere *sphere, Point *intersection_point)
         {
             return 0;
         }
-
-        // if (t1 > 0.0)
-        // {
-        //     set_vector((Vector *)intersection_point,
-        //                ray->origin.x + ray->direction.x * t1,
-        //                ray->origin.y + ray->direction.y * t1,
-        //                ray->origin.z + ray->direction.z * t1);
-        //     return 1;
-        // }
-        // else
-        // {
-        //     return 0;
-        // }
-        // if (t1 < 0.0 && t2 < 0.0)
-        // {
-        //     return 0;
-        // }
-        // else if (t1 < 0.0)
-        // {
-        //     set_vector((Vector *)intersection_point,
-        //                ray->origin.x + ray->direction.x * t2,
-        //                ray->origin.y + ray->direction.y * t2,
-        //                ray->origin.z + ray->direction.z * t2);
-        // }
-        // else if (t2 < 0.0)
-        // {
-        //     set_vector((Vector *)intersection_point,
-        //                ray->origin.x + ray->direction.x * t1,
-        //                ray->origin.y + ray->direction.y * t1,
-        //                ray->origin.z + ray->direction.z * t1);
-        // }
-        // else
-        // {
-        //     double t = fmin(t1, t2);
-        //     set_vector((Vector *)intersection_point,
-        //                ray->origin.x + ray->direction.x * t,
-        //                ray->origin.y + ray->direction.y * t,
-        //                ray->origin.z + ray->direction.z * t);
-        // }
-        // return 1;
     }
+}
+
+//function to compute the location of a ray intersection with a plane
+//returns 1 if the ray intersects, 0 otherwise
+//intersection point is stored in the provided reference to an output point
+int ray_intersects_plane(Ray *ray, Plane *plane, Point *intersection_point)
+{
+    double denom = dot_product(&(ray->direction), &(plane->normal));
+    if (fabs(denom) > 0.00001)
+    {
+        // Vector negative_origin = scale_vector_copy(&ray->origin, -1.0);
+        Vector ray_to_play_point = subtract_vectors_copy((Vector *)&plane->point, (Vector *)&ray->origin);
+        double t = dot_product(&ray_to_play_point, &(plane->normal)) / denom;
+        if (t > 0.00001)
+        {
+            set_vector((Vector *)intersection_point,
+                       ray->origin.x + t * ray->direction.x,
+                       ray->origin.y + t * ray->direction.y,
+                       ray->origin.z + t * ray->direction.z);
+            return 1;
+        }
+    }
+    return 0;
 }
 
 //function to project the scene onto a screen
@@ -469,51 +466,117 @@ void project_scene(Scene *scene, Screen *screen)
             {
                 //find the closest intersection
                 double closest_distance = INFINITY;
+                Object_Type closest_object = NONE;
                 int closest_sphere_index = -1;
                 Point closest_intersection_point = (Point){0.0, 0.0, 0.0};
+                Point intersection_point; //point to use when computing the intersection point
+
+                //check each of the spheres if they are the closest intersection
                 for (int i = 0; i < scene->num_spheres; i++)
                 {
-                    Point intersection_point;
                     if (ray_intersects_sphere(&ray, &(scene->spheres[i]), &intersection_point))
                     {
                         //efficiently compute distance from ray origin to intersection point
                         Vector ray_origin_sphere_vector;
                         set_vector(&ray_origin_sphere_vector,
-                                   ray.origin.x - intersection_point.x,  //scene->spheres[i].center.x,
-                                   ray.origin.y - intersection_point.y,  //scene->spheres[i].center.y,
-                                   ray.origin.z - intersection_point.z); //scene->spheres[i].center.z);
+                                   ray.origin.x - intersection_point.x,
+                                   ray.origin.y - intersection_point.y,
+                                   ray.origin.z - intersection_point.z);
                         double square_distance = dot_product(&ray_origin_sphere_vector, &ray_origin_sphere_vector);
                         if (square_distance < closest_distance)
                         {
                             closest_distance = square_distance;
                             closest_sphere_index = i;
                             closest_intersection_point = intersection_point;
+                            closest_object = SPHERE;
                         }
                     }
                 }
 
-                //set the pixel color of the screen based on the color of the closest sphere if there is one
-                if (closest_sphere_index != -1)
+                //check the ground if it is the closest intersection
+                if (ray_intersects_plane(&ray, &(scene->ground), &intersection_point))
                 {
-                    //add the color of the closest sphere to the pixel color
-                    add_vectors(&pixel_color, &(scene->spheres[closest_sphere_index].material.color));
-                    bounces++;
+                    //efficiently compute distance from ray origin to intersection point
+                    Vector ray_origin_plane_vector;
+                    set_vector(&ray_origin_plane_vector,
+                               ray.origin.x - intersection_point.x,
+                               ray.origin.y - intersection_point.y,
+                               ray.origin.z - intersection_point.z);
+                    double square_distance = dot_product(&ray_origin_plane_vector, &ray_origin_plane_vector);
+                    if (square_distance < closest_distance)
+                    {
+                        closest_distance = square_distance;
+                        closest_sphere_index = -1;
+                        closest_intersection_point = intersection_point;
+                        closest_object = GROUND;
+                    }
+                }
 
-                    //compute the new ray direction
+                //set the pixel color of the screen based on the color of the closest sphere if there is one
+                if (closest_object != NONE)
+                {
                     Vector normal;
-                    set_vector(&normal,
-                               closest_intersection_point.x - scene->spheres[closest_sphere_index].center.x,
-                               closest_intersection_point.y - scene->spheres[closest_sphere_index].center.y,
-                               closest_intersection_point.z - scene->spheres[closest_sphere_index].center.z);
+                    switch (closest_object)
+                    {
+                    case SPHERE:
+                    {
+                        //add the color of the closest sphere to the pixel color
+                        add_vectors(&pixel_color, &(scene->spheres[closest_sphere_index].material.color));
+                        bounces++;
+
+                        //compute the normal at the intersection point
+                        set_vector(&normal,
+                                   closest_intersection_point.x - scene->spheres[closest_sphere_index].center.x,
+                                   closest_intersection_point.y - scene->spheres[closest_sphere_index].center.y,
+                                   closest_intersection_point.z - scene->spheres[closest_sphere_index].center.z);
+                        break;
+                    }
+                    case GROUND:
+                    {
+                        //determine if the ground intersection occurs on an even or odd point
+                        int odd = ((int)closest_intersection_point.x) + ((int)closest_intersection_point.z) & 1;
+                        //add the color of the ground to the pixel color
+                        add_vectors(&pixel_color, odd ? &scene->ground.even_material.color : &scene->ground.odd_material.color);
+                        bounces++;
+
+                        //compute the normal at the intersection point
+                        set_vector(&normal, scene->ground.normal.x, scene->ground.normal.y, scene->ground.normal.z);
+                        break;
+                    }
+                    default:
+                        //should never get here
+                        break;
+                    }
+                    //compute the reflection ray
                     normalize_vector(&normal);
                     reflect_vector(&ray.direction, &normal);
                     normalize_vector(&ray.direction);
                     set_vector((Vector *)&ray.origin, closest_intersection_point.x, closest_intersection_point.y, closest_intersection_point.z);
 
-                    //push the starting point of the ray outside the surface of the sphere
+                    //push the starting point of the ray outside the surface of the reflected object
                     Vector offset = scale_vector_copy(&ray.direction, 0.001);
                     add_vectors((Vector *)&ray.origin, &offset);
                 }
+                // if (closest_sphere_index != -1)
+                // {
+                //     //add the color of the closest sphere to the pixel color
+                //     add_vectors(&pixel_color, &(scene->spheres[closest_sphere_index].material.color));
+                //     bounces++;
+
+                //     //compute the new ray direction
+                //     Vector normal;
+                //     set_vector(&normal,
+                //                closest_intersection_point.x - scene->spheres[closest_sphere_index].center.x,
+                //                closest_intersection_point.y - scene->spheres[closest_sphere_index].center.y,
+                //                closest_intersection_point.z - scene->spheres[closest_sphere_index].center.z);
+                //     normalize_vector(&normal);
+                //     reflect_vector(&ray.direction, &normal);
+                //     normalize_vector(&ray.direction);
+                //     set_vector((Vector *)&ray.origin, closest_intersection_point.x, closest_intersection_point.y, closest_intersection_point.z);
+
+                //     //push the starting point of the ray outside the surface of the sphere
+                //     Vector offset = scale_vector_copy(&ray.direction, 0.001);
+                //     add_vectors((Vector *)&ray.origin, &offset);
                 else
                 {
                     //add sky color to the pixel
@@ -612,6 +675,8 @@ int main()
         {.center = {.x = 0.0, .y = 0.0, .z = -0.25}, .material = {.color = {.x = 1.0, .y = 1.0, .z = 0.0}}, .radius = 0.125},
     };
 
+    Plane ground = {.normal = {.x = 0.0, .y = 1.0, .z = 0.0}, .point = {.x = 0.0, .y = -2.0, .z = 0.0}, .even_material = GROUND_EVEN_COLOR, .odd_material = GROUND_ODD_COLOR};
+
     //create a camera looking at the sphere from 2 meters away
     //camera position will be set inside the while loop
     Camera camera;
@@ -645,7 +710,7 @@ int main()
         set_screen_color(&screen, BACKGROUND_COLOR);
 
         //project the scene onto the screen
-        project_scene(&(Scene){.camera = camera, .spheres = spheres, .num_spheres = NUM_SPHERES}, &screen);
+        project_scene(&(Scene){.camera = camera, .spheres = spheres, .num_spheres = NUM_SPHERES, .ground = ground}, &screen);
 
         //draw the screen to the terminal
         draw_screen(&screen);
@@ -656,7 +721,7 @@ int main()
         init_frame(&tf1);
         init_frame(&(camera.frame));
         rotate_basis_y(&tf0.basis, 2.0 * PI * t * 0.3);
-        rotate_basis_x(&tf0.basis, 2.0 * PI * t * 0.5);
+        // rotate_basis_x(&tf0.basis, 2.0 * PI * t * 0.5);
         Vector root_to_camera = {.x = 0.0, .y = 0.0, .z = 5.0};
         add_vectors((Vector *)&tf1.origin, &root_to_camera);
         transform_frame(&camera.frame, &tf1);
