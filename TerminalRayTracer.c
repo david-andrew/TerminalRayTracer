@@ -29,13 +29,14 @@
 #include <stdlib.h>
 #include <time.h>
 #include <math.h>
+#include <string.h>
 
 //math constants
 #define PI 3.14159265358979323846
 
 //constants for the screen
-#define SCREEN_WIDTH 180
-#define SCREEN_HEIGHT 180
+#define SCREEN_WIDTH 80
+#define SCREEN_HEIGHT 80
 
 #define FRAME_RATE 60                                              //frames per second
 #define FRAME_DURATION 1.0 / FRAME_RATE                            //time between frames
@@ -72,9 +73,10 @@ typedef struct
 } Vector;
 
 Vector SKY_COLOR = {0.5372549019607842924, 0.7686274509803922017, 0.9568627450980392579};
+// Vector SKY_COLOR = {0.5, 0.5, 0.85};
 Vector BACKGROUND_COLOR = {0.0, 0.0, 0.0};
 Vector GROUND_EVEN_COLOR = {0.0, 0.0, 0.0};
-Vector GROUND_ODD_COLOR = {1.0, 1.0, 1.0};
+Vector GROUND_ODD_COLOR = {1.0, 0.0, 0.0};
 
 //struct for a basis, i.e. x y and z axis of a reference frame
 typedef struct
@@ -557,26 +559,6 @@ void project_scene(Scene *scene, Screen *screen)
                     Vector offset = scale_vector_copy(&ray.direction, 0.001);
                     add_vectors((Vector *)&ray.origin, &offset);
                 }
-                // if (closest_sphere_index != -1)
-                // {
-                //     //add the color of the closest sphere to the pixel color
-                //     add_vectors(&pixel_color, &(scene->spheres[closest_sphere_index].material.color));
-                //     bounces++;
-
-                //     //compute the new ray direction
-                //     Vector normal;
-                //     set_vector(&normal,
-                //                closest_intersection_point.x - scene->spheres[closest_sphere_index].center.x,
-                //                closest_intersection_point.y - scene->spheres[closest_sphere_index].center.y,
-                //                closest_intersection_point.z - scene->spheres[closest_sphere_index].center.z);
-                //     normalize_vector(&normal);
-                //     reflect_vector(&ray.direction, &normal);
-                //     normalize_vector(&ray.direction);
-                //     set_vector((Vector *)&ray.origin, closest_intersection_point.x, closest_intersection_point.y, closest_intersection_point.z);
-
-                //     //push the starting point of the ray outside the surface of the sphere
-                //     Vector offset = scale_vector_copy(&ray.direction, 0.001);
-                //     add_vectors((Vector *)&ray.origin, &offset);
                 else
                 {
                     //add sky color to the pixel
@@ -625,6 +607,79 @@ void draw_screen(Screen *screen)
     }
 }
 
+//more efficient function to draw to the screen using a string buffer and single print statement
+char reset_str[] = "\033[0;0H";
+char pixel_str[] = "\033[48;2;000;000;000m  \033[0m";
+char screenbuffer[(sizeof(reset_str) + 1) + ((sizeof(pixel_str) - 1) * SCREEN_WIDTH + 1) * SCREEN_HEIGHT + 1];
+
+//function to initialize screenbuffer with color codes at every pixel location
+void initialize_screenbuffer()
+{
+    char *buff_ptr = screenbuffer;
+
+    //copy the reset string to the front of the buffer, excluding the null terminator
+    memcpy(buff_ptr, reset_str, sizeof(reset_str) - 1);
+
+    //increment the buffer pointer past the reset string
+    buff_ptr += sizeof(reset_str) - 1;
+
+    //copy the pixel string to the rest of the buffer, excluding the null terminator, and adding a newline after each row
+    for (int i = 0; i < SCREEN_HEIGHT; i++)
+    {
+        for (int j = 0; j < SCREEN_WIDTH; j++)
+        {
+            memcpy(buff_ptr, pixel_str, sizeof(pixel_str) - 1);
+            buff_ptr += sizeof(pixel_str) - 1;
+        }
+        memcpy(buff_ptr, "\n", 1);
+        buff_ptr += 1;
+    }
+
+    //null terminate the buffer
+    *buff_ptr = '\0';
+}
+
+//function to convert a byte to its 3 base-10 digit values
+void byte_to_digits(int value, char output[3])
+{
+    output[0] = value / 100 + '0';
+    output[1] = (value / 10) % 10 + '0';
+    output[2] = value % 10 + '0';
+}
+
+//function to draw screen by setting the values in the screenbuffer and printing it in one print statement
+void buffered_draw_screen(Screen *screen)
+{
+    char *buff_ptr = screenbuffer;
+
+    //move the ptr past the reset string to the first row of pixels
+    buff_ptr += sizeof(reset_str) - 1;
+
+    //set the value of each pixel color in the buffer
+    for (int i = 0; i < screen->height; i++)
+    {
+        for (int j = 0; j < screen->width; j++)
+        {
+            buff_ptr += 7; //advance the pointer past the start of the color code sequence
+            Vector pixel = screen->pixels[i * screen->width + j];
+            char val[3]; //holds the value of each color component from 0-255 (with leading 0s so it's always 3 characters long)
+            byte_to_digits((int)(pixel.x * 255), val);
+            memcpy(buff_ptr, val, 3);
+            buff_ptr += 4; //include the semicolon after the color value
+            byte_to_digits((int)(pixel.y * 255), val);
+            memcpy(buff_ptr, val, 3);
+            buff_ptr += 4; //include the semicolen after the color value
+            byte_to_digits((int)(pixel.z * 255), val);
+            memcpy(buff_ptr, val, 3);
+            buff_ptr += 10; //inclide the "m  \033[0m" characters after the color value
+        }
+        buff_ptr += 1; //advance past the newline
+    }
+
+    //print the screenbuffer to the terminal as efficiently as possible
+    fwrite(screenbuffer, sizeof(char), sizeof(screenbuffer), stdout);
+}
+
 //function to capture user input arrow keys for camera movement using getch()
 // void get_camera_movement(Scene *scene)
 // {
@@ -659,6 +714,9 @@ int main()
 {
     //seed the random number generator
     srand(time(0));
+
+    //initialize the screen buffer
+    initialize_screenbuffer();
 
     //get the time that the program starts
     struct timespec start;
@@ -713,16 +771,16 @@ int main()
         project_scene(&(Scene){.camera = camera, .spheres = spheres, .num_spheres = NUM_SPHERES, .ground = ground}, &screen);
 
         //draw the screen to the terminal
-        draw_screen(&screen);
+        buffered_draw_screen(&screen);
 
         //construct the transform of the camera. the camera should orbit the center of the scene
         Frame tf0, tf1;
         init_frame(&tf0);
         init_frame(&tf1);
         init_frame(&(camera.frame));
-        rotate_basis_y(&tf0.basis, 2.0 * PI * t * 0.3);
-        // rotate_basis_x(&tf0.basis, 2.0 * PI * t * 0.5);
-        Vector root_to_camera = {.x = 0.0, .y = 0.0, .z = 5.0};
+        // rotate_basis_y(&tf0.basis, 2.0 * PI * t * 0.003);
+        rotate_basis_x(&tf0.basis, 2.0 * PI * t * 0.05);
+        Vector root_to_camera = {.x = 0.0, .y = 0.0, .z = 1.99};
         add_vectors((Vector *)&tf1.origin, &root_to_camera);
         transform_frame(&camera.frame, &tf1);
         transform_frame(&camera.frame, &tf0);
@@ -743,6 +801,7 @@ int main()
         //print the number of nanoseconds at the bottom of the terminal, and then move the cursor back to the top
         // printf("%lld\n", program_nanos);
         // printf("\033[1;1H");
+        // break;
     }
 }
 
