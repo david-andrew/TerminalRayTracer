@@ -169,6 +169,14 @@ double random_number_range(double min, double max)
     return min + random_number() * (max - min);
 }
 
+//function for generating a triangle wave pattern
+//input is t.
+//output: t=0->0, pi/2->1, pi->0, 3pi/2->1, 2pi->0
+double triangle_wave(double t)
+{
+    return (fmod(t, 2 * PI) < PI) ? (fmod(t, 2 * PI) / PI) : (2 - (fmod(t, 2 * PI) / PI));
+}
+
 //function to initialize a sphere passed in with random values
 void init_random_sphere(Sphere *sphere)
 {
@@ -457,8 +465,12 @@ void project_scene(Scene *scene, Screen *screen)
                 double screen_z = -scene->camera.screen_distance;
 
                 //offset the x and y coordinates by the sub pixel offset for antialiasing
-                screen_x += x_pixel_offsets[ray_num] * pixel_width;
-                screen_y += y_pixel_offsets[ray_num] * pixel_height;
+                // screen_x += fabs(sin(2 * PI * ray_num / RAYS_PER_PIXEL)) / 2 * pixel_width;
+                // screen_y += fabs(sin(PI * ray_num / RAYS_PER_PIXEL)) / 2 * pixel_height;
+                screen_x += triangle_wave(2 * PI * ray_num / RAYS_PER_PIXEL) / 2 * pixel_width;
+                screen_y += triangle_wave(PI * ray_num / RAYS_PER_PIXEL) / 2 * pixel_height;
+                // screen_x += x_pixel_offsets[ray_num] * pixel_width;
+                // screen_y += y_pixel_offsets[ray_num] * pixel_height;
 
                 //convert point to 3D space relative to the scene origin
                 Vector world_x = scale_vector_copy(&scene->camera.frame.basis.x, screen_x);
@@ -801,8 +813,8 @@ int main()
         init_frame(&tf0);
         init_frame(&tf1);
         init_frame(&(camera.frame));
-        rotate_basis_y(&tf0.basis, 2.0 * PI * t * 0.03);
-        rotate_basis_x(&tf0.basis, 2.0 * PI * t * 0.05);
+        rotate_basis_x(&tf0.basis, 2.0 * PI * -0.005);
+        rotate_basis_y(&tf0.basis, 2.0 * PI * t * 0.003);
         Vector root_to_camera = {.x = 0.0, .y = 0.0, .z = 1.99};
         add_vectors((Vector *)&tf1.origin, &root_to_camera);
         transform_frame(&camera.frame, &tf1);
