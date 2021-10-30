@@ -110,6 +110,7 @@ typedef struct
 typedef struct
 {
     Vector color;
+    double reflectivity;
 } Material;
 
 //struct for a sphere
@@ -155,6 +156,7 @@ typedef struct
     int num_spheres;
     Plane ground;
     Camera camera;
+    Vector sky_color; //TODO->consider converting this to a texture map
 } Scene;
 
 //function to generate a random number between 0 and 1
@@ -491,9 +493,11 @@ void project_scene(Scene *scene, Screen *screen)
                 Ray ray = (Ray){scene->camera.frame.origin, screen_point};
                 Vector pixel_color = {.x = 0.0, .y = 0.0, .z = 0.0};
                 int bounces = 0;
-                int still_going = 1; //false if the ray has stoped bouncing off of things
+                double color_contribution = 1.0;       //amount of color to the pixel for the current bounce. updated by material reflectivity
+                double color_contribution_total = 0.0; //total amount of color contributed by all bounces
+                int still_going = 1;                   //false if the ray has stoped bouncing off of things
 
-                while (still_going && bounces < BOUNCE_LIMIT)
+                while (still_going && bounces < BOUNCE_LIMIT && color_contribution > 0.00001)
                 {
                     //find the closest intersection
                     double closest_distance = INFINITY;
@@ -544,63 +548,69 @@ void project_scene(Scene *scene, Screen *screen)
                     }
 
                     //set the pixel color of the screen based on the color of the closest sphere if there is one
-                    if (closest_object != NONE)
+
+                    Vector normal;
+                    Vector color;
+                    switch (closest_object)
                     {
-                        Vector normal;
-                        switch (closest_object)
-                        {
-                        case SPHERE:
-                        {
-                            //add the color of the closest sphere to the pixel color
-                            add_vectors(&pixel_color, &(scene->spheres[closest_sphere_index].material.color));
-                            bounces++;
+                    case SPHERE:
+                    {
+                        //save the color contribution of this bounce, and update the contribution amounts for later bounces
+                        color = scale_vector_copy(&scene->spheres[closest_sphere_index].material.color, color_contribution);
+                        color_contribution_total += color_contribution;
+                        color_contribution *= scene->spheres[closest_sphere_index].material.reflectivity;
+                        bounces++;
 
-                            //compute the normal at the intersection point
-                            set_vector(&normal,
-                                       closest_intersection_point.x - scene->spheres[closest_sphere_index].center.x,
-                                       closest_intersection_point.y - scene->spheres[closest_sphere_index].center.y,
-                                       closest_intersection_point.z - scene->spheres[closest_sphere_index].center.z);
-                            break;
-                        }
-                        case GROUND:
-                        {
-                            //determine if the ground intersection occurs on an even or odd point
-                            int odd = (int)(floor(closest_intersection_point.x) + floor(closest_intersection_point.z)) & 1;
-                            //add the color of the ground to the pixel color
-                            add_vectors(&pixel_color, odd ? &scene->ground.even_material.color : &scene->ground.odd_material.color);
-                            bounces++;
+                        //compute the normal at the intersection point
+                        set_vector(&normal,
+                                   closest_intersection_point.x - scene->spheres[closest_sphere_index].center.x,
+                                   closest_intersection_point.y - scene->spheres[closest_sphere_index].center.y,
+                                   closest_intersection_point.z - scene->spheres[closest_sphere_index].center.z);
 
-                            //compute the normal at the intersection point
-                            set_vector(&normal, scene->ground.normal.x, scene->ground.normal.y, scene->ground.normal.z);
-                            break;
-                        }
-                        default:
-                            //should never get here
-                            break;
-                        }
-                        //compute the reflection ray
-                        normalize_vector(&normal);
-                        reflect_vector(&ray.direction, &normal);
-                        normalize_vector(&ray.direction);
-                        set_vector((Vector *)&ray.origin, closest_intersection_point.x, closest_intersection_point.y, closest_intersection_point.z);
-
-                        //push the starting point of the ray outside the surface of the reflected object
-                        Vector offset = scale_vector_copy(&ray.direction, 0.001);
-                        add_vectors((Vector *)&ray.origin, &offset);
+                        break;
                     }
-                    else
+                    case GROUND:
                     {
-                        //add sky color to the pixel
-                        add_vectors(&pixel_color, &SKY_COLOR);
+                        //determine if the ground intersection occurs on an even or odd point, and select the corresponding material
+                        int odd = (int)(floor(closest_intersection_point.x) + floor(closest_intersection_point.z)) & 1;
+                        Material *ground_material = odd ? &scene->ground.odd_material : &scene->ground.even_material;
+
+                        //save the color contribution of this bounce, and update the contribution amounts for later bounces
+                        color = scale_vector_copy(&ground_material->color, color_contribution);
+                        color_contribution_total += color_contribution;
+                        color_contribution *= ground_material->reflectivity;
+                        bounces++;
+
+                        //compute the normal at the intersection point
+                        set_vector(&normal, scene->ground.normal.x, scene->ground.normal.y, scene->ground.normal.z);
+                        break;
+                    }
+                    case NONE: //hits the sky
+                    {
+                        color = scale_vector_copy(&scene->sky_color, color_contribution);
+                        color_contribution_total += color_contribution;
+                        color_contribution = 0.0;
                         still_going = 0;
                     }
+                    }
+                    //add the color contribution from this bounce
+                    add_vectors(&pixel_color, &color);
+
+                    //compute the reflection ray
+                    normalize_vector(&normal);
+                    reflect_vector(&ray.direction, &normal);
+                    normalize_vector(&ray.direction);
+                    set_vector((Vector *)&ray.origin, closest_intersection_point.x, closest_intersection_point.y, closest_intersection_point.z);
+
+                    //push the starting point of the ray outside the surface of the reflected object
+                    Vector offset = scale_vector_copy(&ray.direction, 0.001);
+                    add_vectors((Vector *)&ray.origin, &offset);
                 }
 
                 //set the color of this pixel in the screen
-                // if (bounces > 0)
-                {
-                    scale_vector(&pixel_color, 1.0 / (bounces + 1));
-                }
+
+                scale_vector(&pixel_color, 1.0 / color_contribution_total);
+
                 add_vectors(&average_pixel_color, &pixel_color);
             }
             scale_vector(&average_pixel_color, 1.0 / RAYS_PER_PIXEL);
@@ -757,19 +767,20 @@ int main()
 //create a list of 6 spheres 1 for each direction in 3D
 #define NUM_SPHERES 6
     Sphere spheres[NUM_SPHERES] = {
-        {.center = {.x = 0.25, .y = 0.0, .z = 0.0}, .material = {.color = {.x = 1.0, .y = 1.0, .z = 1.0}}, .radius = 0.125},
-        {.center = {.x = 0.0, .y = 0.25, .z = 0.0}, .material = {.color = {.x = 0.5, .y = 0.5, .z = 0.5}}, .radius = 0.125},
-        {.center = {.x = 0.0, .y = 0.0, .z = 0.25}, .material = {.color = {.x = 0.0, .y = 0.0, .z = 0.0}}, .radius = 0.125},
-        {.center = {.x = -0.25, .y = 0.0, .z = 0.0}, .material = {.color = {.x = 0.0, .y = 1.0, .z = 1.0}}, .radius = 0.125},
-        {.center = {.x = 0.0, .y = -0.25, .z = 0.0}, .material = {.color = {.x = 1.0, .y = 0.0, .z = 1.0}}, .radius = 0.125},
-        {.center = {.x = 0.0, .y = 0.0, .z = -0.25}, .material = {.color = {.x = 1.0, .y = 1.0, .z = 0.0}}, .radius = 0.125},
+        {.center = {.x = 0.25, .y = 0.0, .z = 0.0}, .material = {.color = {.x = 1.0, .y = 1.0, .z = 1.0}, .reflectivity = 1.0}, .radius = 0.125},
+        {.center = {.x = 0.0, .y = 0.25, .z = 0.0}, .material = {.color = {.x = 0.5, .y = 0.5, .z = 0.5}, .reflectivity = 0.8}, .radius = 0.125},
+        {.center = {.x = 0.0, .y = 0.0, .z = 0.25}, .material = {.color = {.x = 0.0, .y = 0.0, .z = 0.0}, .reflectivity = 0.8}, .radius = 0.125},
+        {.center = {.x = -0.25, .y = 0.0, .z = 0.0}, .material = {.color = {.x = 0.0, .y = 1.0, .z = 1.0}, .reflectivity = 0.8}, .radius = 0.125},
+        {.center = {.x = 0.0, .y = -0.25, .z = 0.0}, .material = {.color = {.x = 1.0, .y = 0.0, .z = 1.0}, .reflectivity = 0.8}, .radius = 0.125},
+        {.center = {.x = 0.0, .y = 0.0, .z = -0.25}, .material = {.color = {.x = 1.0, .y = 1.0, .z = 0.0}, .reflectivity = 0.8}, .radius = 0.125},
     };
 
     Plane ground = {
         .normal = {.x = 0.0, .y = 1.0, .z = 0.0},
         .point = {.x = 0.0, .y = -2.0, .z = 0.0},
-        .even_material = GROUND_EVEN_COLOR,
-        .odd_material = GROUND_ODD_COLOR};
+        .even_material = {.color = GROUND_EVEN_COLOR, .reflectivity = 0.0},
+        .odd_material = {.color = GROUND_ODD_COLOR, .reflectivity = 0.0},
+    };
 
     //create a camera looking at the sphere from 2 meters away
     //camera position will be set inside the while loop
@@ -804,7 +815,7 @@ int main()
         transform_frame(&camera.frame, &tf0);
 
         //project the scene onto the screen
-        project_scene(&(Scene){.camera = camera, .spheres = spheres, .num_spheres = NUM_SPHERES, .ground = ground}, &screen);
+        project_scene(&(Scene){.camera = camera, .spheres = spheres, .num_spheres = NUM_SPHERES, .ground = ground, .sky_color = SKY_COLOR}, &screen);
 
         //draw the screen to the terminal
         buffered_draw_screen(&screen);
