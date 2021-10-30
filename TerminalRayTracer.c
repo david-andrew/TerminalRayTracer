@@ -35,8 +35,8 @@
 #define PI 3.14159265358979323846
 
 //constants for the screen
-#define SCREEN_WIDTH 80
-#define SCREEN_HEIGHT 80
+#define SCREEN_WIDTH 480
+#define SCREEN_HEIGHT 280
 
 #define FRAME_RATE 60                                              //frames per second
 #define FRAME_DURATION 1.0 / FRAME_RATE                            //time between frames
@@ -212,7 +212,7 @@ void init_camera(Camera *camera)
 {
     init_frame(&(camera->frame));
     camera->screen_distance = 1.0;
-    camera->screen_width = 1.0;
+    camera->screen_width = (double)SCREEN_WIDTH / (double)SCREEN_HEIGHT;
     camera->screen_height = 1.0;
 }
 
@@ -733,7 +733,11 @@ int main()
         {.center = {.x = 0.0, .y = 0.0, .z = -0.25}, .material = {.color = {.x = 1.0, .y = 1.0, .z = 0.0}}, .radius = 0.125},
     };
 
-    Plane ground = {.normal = {.x = 0.0, .y = 1.0, .z = 0.0}, .point = {.x = 0.0, .y = -2.0, .z = 0.0}, .even_material = GROUND_EVEN_COLOR, .odd_material = GROUND_ODD_COLOR};
+    Plane ground = {
+        .normal = {.x = 0.0, .y = 1.0, .z = 0.0},
+        .point = {.x = 0.0, .y = -2.0, .z = 0.0},
+        .even_material = GROUND_EVEN_COLOR,
+        .odd_material = GROUND_ODD_COLOR};
 
     //create a camera looking at the sphere from 2 meters away
     //camera position will be set inside the while loop
@@ -746,7 +750,6 @@ int main()
 
     //loop forever. set each pixel on the screen to a random color and draw the screen to the terminal
     struct timespec ts; //keep track of the system time for computing the duration of frames
-    // double t = 0.0; //number of seconds elapsed since program started
     while (1)
     {
         //get the current system time, get the number of nanoseconds elapsed since the start of the program
