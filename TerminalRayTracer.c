@@ -35,8 +35,8 @@
 #define PI 3.14159265358979323846
 
 //constants for the screen
-#define SCREEN_WIDTH 480
-#define SCREEN_HEIGHT 280
+#define SCREEN_WIDTH 180
+#define SCREEN_HEIGHT 180
 
 #define FRAME_RATE 60                                              //frames per second
 #define FRAME_DURATION 1.0 / FRAME_RATE                            //time between frames
@@ -48,7 +48,7 @@
 //shoot multiple rays per pixel to handle anti-aliasing
 double x_pixel_offsets[] = {0.0, 0.5, 0.0, 0.5};
 double y_pixel_offsets[] = {0.0, 0.5, 0.5, 0.0};
-#define RAYS_PER_PIXEL 4 //sizeof(x_pixel_offsets) / sizeof(double) // number of rays to shoot for each pixel
+#define RAYS_PER_PIXEL 10 //sizeof(x_pixel_offsets) / sizeof(double) // number of rays to shoot for each pixel
 
 //constants for the scene
 // #define GROUND_PLANE_HEIGHT -2.0
@@ -779,7 +779,7 @@ int main()
         .normal = {.x = 0.0, .y = 1.0, .z = 0.0},
         .point = {.x = 0.0, .y = -2.0, .z = 0.0},
         .even_material = {.color = GROUND_EVEN_COLOR, .reflectivity = 0.0},
-        .odd_material = {.color = GROUND_ODD_COLOR, .reflectivity = 0.0},
+        .odd_material = {.color = GROUND_ODD_COLOR, .reflectivity = 1.0},
     };
 
     //create a camera looking at the sphere from 2 meters away
@@ -807,7 +807,7 @@ int main()
         init_frame(&tf0);
         init_frame(&tf1);
         init_frame(&(camera.frame));
-        rotate_basis_x(&tf0.basis, 2.0 * PI * -0.005);
+        rotate_basis_x(&tf0.basis, 2.0 * PI * t * -0.005);
         rotate_basis_y(&tf0.basis, 2.0 * PI * t * 0.003);
         Vector root_to_camera = {.x = 0.0, .y = 0.0, .z = 1.99};
         add_vectors((Vector *)&tf1.origin, &root_to_camera);
