@@ -6,7 +6,7 @@ A ray tracer that runs in the terminal with no dependencies
 ## how to use
 
 ```
-clang TerminalRayTracer.c -lm && ./a.out
+clang TerminalRayTracer.c -lm -O3 && ./a.out
 ```
 
 ## To Do
