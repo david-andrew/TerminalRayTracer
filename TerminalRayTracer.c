@@ -791,23 +791,6 @@ int main()
         //seconds that this frame occurred at
         double t = (double)start_nanos / 1000000000.0;
 
-        //set the screen to the background color
-        //set each pixel on the screen to a random color
-        for (int i = 0; i < screen.height; i++)
-        {
-            for (int j = 0; j < screen.width; j++)
-            {
-                set_vector(&(screen.pixels[i * screen.width + j]), random_number(), random_number(), random_number());
-            }
-        }
-        set_screen_color(&screen, BACKGROUND_COLOR);
-
-        //project the scene onto the screen
-        project_scene(&(Scene){.camera = camera, .spheres = spheres, .num_spheres = NUM_SPHERES, .ground = ground}, &screen);
-
-        //draw the screen to the terminal
-        buffered_draw_screen(&screen);
-
         //construct the transform of the camera. the camera should orbit the center of the scene
         Frame tf0, tf1;
         init_frame(&tf0);
@@ -819,6 +802,12 @@ int main()
         add_vectors((Vector *)&tf1.origin, &root_to_camera);
         transform_frame(&camera.frame, &tf1);
         transform_frame(&camera.frame, &tf0);
+
+        //project the scene onto the screen
+        project_scene(&(Scene){.camera = camera, .spheres = spheres, .num_spheres = NUM_SPHERES, .ground = ground}, &screen);
+
+        //draw the screen to the terminal
+        buffered_draw_screen(&screen);
 
         //compute the amount of time the frame computations took
         timespec_get(&ts, TIME_UTC);
@@ -832,11 +821,6 @@ int main()
             const struct timespec delay = {.tv_sec = nanos_to_sleep / 1000000000, .tv_nsec = nanos_to_sleep % 1000000000};
             nanosleep(&delay, NULL);
         }
-
-        //print the number of nanoseconds at the bottom of the terminal, and then move the cursor back to the top
-        // printf("%lld\n", program_nanos);
-        // printf("\033[1;1H");
-        // break;
     }
 }
 

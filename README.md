@@ -10,9 +10,8 @@ clang TerminalRayTracer.c -lm && ./a.out
 ```
 
 ## To Do
- 1. camera controls from keyboard input
- 1. floor
  1. lighting
  1. convert to CUDA to run on GPU
+ 1. camera controls from keyboard input
  1. materials
  1. other shapes
