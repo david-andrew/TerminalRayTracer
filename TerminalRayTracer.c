@@ -44,14 +44,9 @@
 
 #define BOUNCE_LIMIT 10 // number of times a ray can bounce before it is considered a shadow
 
-//TODO->come up with method for distributing the rays uniformly within the pixel
+//TODO->come up with better method for distributing the rays uniformly within the pixel
 //shoot multiple rays per pixel to handle anti-aliasing
-double x_pixel_offsets[] = {0.0, 0.5, 0.0, 0.5};
-double y_pixel_offsets[] = {0.0, 0.5, 0.5, 0.0};
-#define RAYS_PER_PIXEL 10 //sizeof(x_pixel_offsets) / sizeof(double) // number of rays to shoot for each pixel
-
-//constants for the scene
-// #define GROUND_PLANE_HEIGHT -2.0
+#define RAYS_PER_PIXEL 10
 
 //enum for the types of objects possible to hit in the scene
 typedef enum
@@ -60,7 +55,7 @@ typedef enum
     SPHERE,
     GROUND,
     //TODO-> add more objects
-} Object_Type;
+} ObjectType;
 
 //struct for a point
 typedef struct
@@ -113,6 +108,20 @@ typedef struct
     double reflectivity;
 } Material;
 
+//struct for a directional light
+typedef struct
+{
+    Vector direction;
+    Vector color;
+} DirectionalLight;
+
+//struct for a point light
+typedef struct
+{
+    Point position;
+    Vector color;
+} PointLight;
+
 //struct for a sphere
 typedef struct
 {
@@ -137,7 +146,6 @@ typedef struct
     double screen_distance;
     double screen_width;
     double screen_height;
-
 } Camera;
 
 //struct for a screen consisting of a 2D array of pixels represented by vectors for color
@@ -155,8 +163,11 @@ typedef struct
     Sphere *spheres;
     int num_spheres;
     Plane ground;
+    DirectionalLight directional_light;
+    PointLight *point_lights;
+    int num_point_lights;
     Camera camera;
-    Vector sky_color; //TODO->consider converting this to a texture map
+    Material sky; //TODO->consider converting this to a texture map
 } Scene;
 
 //function to generate a random number between 0 and 1
@@ -199,12 +210,28 @@ void set_vector(Vector *vector, double x, double y, double z)
     vector->z = z;
 }
 
+//function to copy one vector into another vector
+void copy_vector(Vector *dest, Vector *src)
+{
+    dest->x = src->x;
+    dest->y = src->y;
+    dest->z = src->z;
+}
+
 //function to set a point with the given values
 void set_point(Point *point, double x, double y, double z)
 {
     point->x = x;
     point->y = y;
     point->z = z;
+}
+
+//function to copy one point into another point
+void copy_point(Point *dest, Point *src)
+{
+    dest->x = src->x;
+    dest->y = src->y;
+    dest->z = src->z;
 }
 
 //function to set a ray with the given values
@@ -440,6 +467,78 @@ int ray_intersects_plane(Ray *ray, Plane *plane, Point *intersection_point)
     return 0;
 }
 
+//break out function for computing the closest intersection point of an object in the scene
+//returns closest intersection point, normal of the intersection, and material of intersection point
+ObjectType trace_ray(Scene *scene, Ray *ray, Point *intersection, Vector *normal, Material *material)
+{
+    //find the closest intersection
+    double closest_distance = INFINITY;
+    ObjectType closest_object = NONE;
+    int closest_index = -1;
+    Point point; //point to use when computing the intersection point
+
+    //check each of the spheres if they are the closest intersection
+    for (int i = 0; i < scene->num_spheres; i++)
+    {
+        if (ray_intersects_sphere(ray, &(scene->spheres[i]), &point))
+        {
+            //efficiently compute distance from ray origin to intersection point
+            Vector ray_origin_sphere_vector;
+            set_vector(&ray_origin_sphere_vector,
+                       ray->origin.x - point.x,
+                       ray->origin.y - point.y,
+                       ray->origin.z - point.z);
+            double square_distance = dot_product(&ray_origin_sphere_vector, &ray_origin_sphere_vector);
+            if (square_distance < closest_distance)
+            {
+                closest_object = SPHERE;
+                closest_distance = square_distance;
+                closest_index = i;
+                *intersection = point;
+                *normal = subtract_vectors_copy((Vector *)&point, (Vector *)&(scene->spheres[i].center));
+                *material = scene->spheres[i].material;
+            }
+        }
+    }
+
+    //check the ground if it is the closest intersection
+    if (ray_intersects_plane(ray, &(scene->ground), &point))
+    {
+        //efficiently compute distance from ray origin to intersection point
+        Vector ray_origin_plane_vector;
+        set_vector(&ray_origin_plane_vector,
+                   ray->origin.x - point.x,
+                   ray->origin.y - point.y,
+                   ray->origin.z - point.z);
+        double square_distance = dot_product(&ray_origin_plane_vector, &ray_origin_plane_vector);
+        if (square_distance < closest_distance)
+        {
+            closest_object = GROUND;
+            closest_distance = square_distance;
+            *intersection = point;
+            *normal = scene->ground.normal;
+            //ground material is a checker pattern based on if the intersection point's coordinates are even/odd
+            int odd = (int)(floor(point.x) + floor(point.z)) & 1;
+            *material = odd ? scene->ground.odd_material : scene->ground.even_material;
+        }
+    }
+
+    //TODO->check other object types
+
+    //if no object was intersected, set the
+    if (closest_object == NONE)
+    {
+        *intersection = ray->origin;
+        *normal = ray->direction;
+        *material = scene->sky;
+    }
+
+    //ensure the normal is normalized
+    normalize_vector(normal);
+
+    return closest_object;
+}
+
 //function to project the scene onto a screen
 void project_scene(Scene *scene, Screen *screen)
 {
@@ -467,12 +566,8 @@ void project_scene(Scene *scene, Screen *screen)
                 double screen_z = -scene->camera.screen_distance;
 
                 //offset the x and y coordinates by the sub pixel offset for antialiasing
-                // screen_x += fabs(sin(2 * PI * ray_num / RAYS_PER_PIXEL)) / 2 * pixel_width;
-                // screen_y += fabs(sin(PI * ray_num / RAYS_PER_PIXEL)) / 2 * pixel_height;
                 screen_x += triangle_wave(2 * PI * ray_num / RAYS_PER_PIXEL) / 2 * pixel_width;
                 screen_y += triangle_wave(PI * ray_num / RAYS_PER_PIXEL) / 2 * pixel_height;
-                // screen_x += x_pixel_offsets[ray_num] * pixel_width;
-                // screen_y += y_pixel_offsets[ray_num] * pixel_height;
 
                 //convert point to 3D space relative to the scene origin
                 Vector world_x = scale_vector_copy(&scene->camera.frame.basis.x, screen_x);
@@ -499,108 +594,36 @@ void project_scene(Scene *scene, Screen *screen)
 
                 while (still_going && bounces < BOUNCE_LIMIT && color_contribution > 0.00001)
                 {
-                    //find the closest intersection
-                    double closest_distance = INFINITY;
-                    Object_Type closest_object = NONE;
-                    int closest_sphere_index = -1;
-                    Point closest_intersection_point = (Point){0.0, 0.0, 0.0};
-                    Point intersection_point; //point to use when computing the intersection point
-
-                    //check each of the spheres if they are the closest intersection
-                    for (int i = 0; i < scene->num_spheres; i++)
-                    {
-                        if (ray_intersects_sphere(&ray, &(scene->spheres[i]), &intersection_point))
-                        {
-                            //efficiently compute distance from ray origin to intersection point
-                            Vector ray_origin_sphere_vector;
-                            set_vector(&ray_origin_sphere_vector,
-                                       ray.origin.x - intersection_point.x,
-                                       ray.origin.y - intersection_point.y,
-                                       ray.origin.z - intersection_point.z);
-                            double square_distance = dot_product(&ray_origin_sphere_vector, &ray_origin_sphere_vector);
-                            if (square_distance < closest_distance)
-                            {
-                                closest_distance = square_distance;
-                                closest_sphere_index = i;
-                                closest_intersection_point = intersection_point;
-                                closest_object = SPHERE;
-                            }
-                        }
-                    }
-
-                    //check the ground if it is the closest intersection
-                    if (ray_intersects_plane(&ray, &(scene->ground), &intersection_point))
-                    {
-                        //efficiently compute distance from ray origin to intersection point
-                        Vector ray_origin_plane_vector;
-                        set_vector(&ray_origin_plane_vector,
-                                   ray.origin.x - intersection_point.x,
-                                   ray.origin.y - intersection_point.y,
-                                   ray.origin.z - intersection_point.z);
-                        double square_distance = dot_product(&ray_origin_plane_vector, &ray_origin_plane_vector);
-                        if (square_distance < closest_distance)
-                        {
-                            closest_distance = square_distance;
-                            closest_sphere_index = -1;
-                            closest_intersection_point = intersection_point;
-                            closest_object = GROUND;
-                        }
-                    }
-
-                    //set the pixel color of the screen based on the color of the closest sphere if there is one
-
+                    // shoot the ray and find the closest intersection
+                    Point intersection;
                     Vector normal;
-                    Vector color;
-                    switch (closest_object)
+                    Material material;
+                    ObjectType closest_object = trace_ray(scene, &ray, &intersection, &normal, &material);
+
+                    //accumulate the total color contribution, and update the color to merge into the pixel according to the contribution
+                    color_contribution_total += color_contribution;
+                    scale_vector(&material.color, color_contribution);
+
+                    //if hit an object, adjust the new color contribution based on the material reflectivity and the amount of bounces
+                    //else stop the ray
+                    if (closest_object != NONE)
                     {
-                    case SPHERE:
-                    {
-                        //save the color contribution of this bounce, and update the contribution amounts for later bounces
-                        color = scale_vector_copy(&scene->spheres[closest_sphere_index].material.color, color_contribution);
-                        color_contribution_total += color_contribution;
-                        color_contribution *= scene->spheres[closest_sphere_index].material.reflectivity;
+                        color_contribution *= material.reflectivity;
                         bounces++;
-
-                        //compute the normal at the intersection point
-                        set_vector(&normal,
-                                   closest_intersection_point.x - scene->spheres[closest_sphere_index].center.x,
-                                   closest_intersection_point.y - scene->spheres[closest_sphere_index].center.y,
-                                   closest_intersection_point.z - scene->spheres[closest_sphere_index].center.z);
-
-                        break;
                     }
-                    case GROUND:
+                    else //hit the sky
                     {
-                        //determine if the ground intersection occurs on an even or odd point, and select the corresponding material
-                        int odd = (int)(floor(closest_intersection_point.x) + floor(closest_intersection_point.z)) & 1;
-                        Material *ground_material = odd ? &scene->ground.odd_material : &scene->ground.even_material;
-
-                        //save the color contribution of this bounce, and update the contribution amounts for later bounces
-                        color = scale_vector_copy(&ground_material->color, color_contribution);
-                        color_contribution_total += color_contribution;
-                        color_contribution *= ground_material->reflectivity;
-                        bounces++;
-
-                        //compute the normal at the intersection point
-                        set_vector(&normal, scene->ground.normal.x, scene->ground.normal.y, scene->ground.normal.z);
-                        break;
-                    }
-                    case NONE: //hits the sky
-                    {
-                        color = scale_vector_copy(&scene->sky_color, color_contribution);
-                        color_contribution_total += color_contribution;
                         color_contribution = 0.0;
                         still_going = 0;
                     }
-                    }
+
                     //add the color contribution from this bounce
-                    add_vectors(&pixel_color, &color);
+                    add_vectors(&pixel_color, &material.color);
 
                     //compute the reflection ray
-                    normalize_vector(&normal);
                     reflect_vector(&ray.direction, &normal);
                     normalize_vector(&ray.direction);
-                    set_vector((Vector *)&ray.origin, closest_intersection_point.x, closest_intersection_point.y, closest_intersection_point.z);
+                    copy_point(&ray.origin, &intersection);
 
                     //push the starting point of the ray outside the surface of the reflected object
                     Vector offset = scale_vector_copy(&ray.direction, 0.001);
@@ -778,8 +801,8 @@ int main()
     Plane ground = {
         .normal = {.x = 0.0, .y = 1.0, .z = 0.0},
         .point = {.x = 0.0, .y = -2.0, .z = 0.0},
-        .even_material = {.color = GROUND_EVEN_COLOR, .reflectivity = 0.0},
-        .odd_material = {.color = GROUND_ODD_COLOR, .reflectivity = 1.0},
+        .even_material = {.color = GROUND_EVEN_COLOR, .reflectivity = 0.2},
+        .odd_material = {.color = GROUND_ODD_COLOR, .reflectivity = 0.2},
     };
 
     //create a camera looking at the sphere from 2 meters away
@@ -790,6 +813,10 @@ int main()
     //create a screen of size SCREEN_WIDTH x SCREEN_HEIGHT with statically allocated pixels
     Vector pixels[SCREEN_HEIGHT * SCREEN_WIDTH];
     Screen screen = {.pixels = (Vector *)pixels, .width = SCREEN_WIDTH, .height = SCREEN_HEIGHT};
+
+    //create a scene with the camera and the spheres
+    Scene scene = {.camera = camera, .spheres = spheres, .num_spheres = NUM_SPHERES, .ground = ground, .sky = {.color = SKY_COLOR, .reflectivity = 0.0}};
+    Camera *camera_ptr = &scene.camera;
 
     //loop forever. set each pixel on the screen to a random color and draw the screen to the terminal
     struct timespec ts; //keep track of the system time for computing the duration of frames
@@ -806,16 +833,16 @@ int main()
         Frame tf0, tf1;
         init_frame(&tf0);
         init_frame(&tf1);
-        init_frame(&(camera.frame));
+        init_frame(&(camera_ptr->frame));
         rotate_basis_x(&tf0.basis, 2.0 * PI * t * -0.005);
         rotate_basis_y(&tf0.basis, 2.0 * PI * t * 0.003);
         Vector root_to_camera = {.x = 0.0, .y = 0.0, .z = 1.99};
         add_vectors((Vector *)&tf1.origin, &root_to_camera);
-        transform_frame(&camera.frame, &tf1);
-        transform_frame(&camera.frame, &tf0);
+        transform_frame(&camera_ptr->frame, &tf1);
+        transform_frame(&camera_ptr->frame, &tf0);
 
         //project the scene onto the screen
-        project_scene(&(Scene){.camera = camera, .spheres = spheres, .num_spheres = NUM_SPHERES, .ground = ground, .sky_color = SKY_COLOR}, &screen);
+        project_scene(&scene, &screen);
 
         //draw the screen to the terminal
         buffered_draw_screen(&screen);
