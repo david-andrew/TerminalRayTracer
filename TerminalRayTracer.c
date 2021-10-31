@@ -36,8 +36,8 @@
 #define EPSILON 0.000001
 
 //constants for the screen
-#define SCREEN_WIDTH 180
-#define SCREEN_HEIGHT 180
+#define SCREEN_WIDTH 480
+#define SCREEN_HEIGHT 280
 
 #define FRAME_RATE 60                                              //frames per second
 #define FRAME_DURATION 1.0 / FRAME_RATE                            //time between frames
@@ -1002,7 +1002,7 @@ int main()
         init_frame(&tf1);
         init_frame(&(scene.camera.frame));
         rotate_basis_x(&tf0.basis, 2.0 * PI * t * -0.005);
-        // rotate_basis_y(&tf0.basis, 2.0 * PI * t * 0.003);
+        rotate_basis_y(&tf0.basis, 2.0 * PI * t * 0.003);
         Vector root_to_camera = {.x = 0.0, .y = 0.0, .z = 1.99};
         add_vectors((Vector *)&tf1.origin, &root_to_camera);
         transform_frame(&scene.camera.frame, &tf1);
