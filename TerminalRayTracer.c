@@ -623,7 +623,7 @@ void apply_lighting(Scene *scene, Point *intersection, Vector *view, Vector *nor
         if (blocking_object == NONE)
         {
             //compute the diffuse and specular contributions
-            Vector diffuse_contribution = scale_vector_copy(&scene->directional_lights[i].color, fmax(fmin(dot_product(normal, &light_direction), 0.0), 1.0));
+            Vector diffuse_contribution = scale_vector_copy(&scene->directional_lights[i].color, clamp(dot_product(normal, &light_direction), 0.0, 1.0));
             // double diffuse_strength = dot_product(normal, &light_direction);
             // Vector specular_contribution = scale_vector_copy(&light_direction,
             //                                                  pow(dot_product(view, &light_direction),
