@@ -107,6 +107,7 @@ typedef struct
 {
     Vector color;
     double reflectivity;
+    double specularity;
 } Material;
 
 //struct for a directional light
@@ -602,7 +603,8 @@ ObjectType trace_ray(Scene *scene, Ray *ray, Point *intersection, Vector *normal
 
 //function to apply lighting to a point in the scene. resulting color is stored in color which contains the initial unlit color of the object
 //specular highlights are computed using the Blinn-Phong model
-void apply_lighting(Scene *scene, Point *intersection, Vector *view, Vector *normal, Vector *color)
+//view points from the object to the source of the ray for this point
+void apply_lighting(Scene *scene, Point *intersection, Vector *view, Vector *normal, Material *material)
 {
     //vector to accumulate the color of point based on the lighting
     Vector output_color = {0.0, 0.0, 0.0};
@@ -624,13 +626,21 @@ void apply_lighting(Scene *scene, Point *intersection, Vector *view, Vector *nor
         {
             //compute the diffuse and specular contributions
             Vector diffuse_contribution = scale_vector_copy(&scene->directional_lights[i].color, clamp(dot_product(normal, &light_direction), 0.0, 1.0));
+
+            //compute the blinn-phong contribution
+            Vector half = add_vectors_copy(&light_direction, view);
+            normalize_vector(&half);
+            // double specular_contribution = pow(clamp(dot_product(normal, &half), 0.0, 1.0), material->specularity);
+            // Vector to_view = subtract_vectors_copy(view, &light_direction);
+            // Vector to_view = subtract_vectors_copy(view, intersection);
+            // Vector specular_contribution = scale_vector_copy(&scene->directional_lights[i].color, pow(clamp(dot_product(view, &(scale_vector_copy(&light_direction, -1.0))), 0.0, 1.0), scene->material.shininess));
             // double diffuse_strength = dot_product(normal, &light_direction);
             // Vector specular_contribution = scale_vector_copy(&light_direction,
             //                                                  pow(dot_product(view, &light_direction),
             //                                                      scene->spheres[0].material.specular_exponent));
 
             //add the contributions to the color
-            multiply_vectors(&diffuse_contribution, color);
+            multiply_vectors(&diffuse_contribution, &material->color);
             add_vectors(&output_color, &diffuse_contribution);
         }
     }
@@ -639,12 +649,9 @@ void apply_lighting(Scene *scene, Point *intersection, Vector *view, Vector *nor
     //TODO
 
     //clamp the color so that it is not greater than 1.0
-    // clamp_vector(color, 1.0);
-    output_color.x = fmin(output_color.x, 1.0);
-    output_color.y = fmin(output_color.y, 1.0);
-    output_color.z = fmin(output_color.z, 1.0);
+    clamp_vector(&output_color, 0.0, 1.0);
 
-    *color = output_color;
+    material->color = output_color;
 }
 
 //function to project the scene onto a screen
@@ -708,9 +715,12 @@ void project_scene(Scene *scene, Screen *screen)
                     Material material;
                     ObjectType closest_object = trace_ray(scene, &ray, &intersection, &normal, &material);
 
-                    //determine the apparent color of the intersection point based on the lighting in the scene
-                    Vector view = scale_vector_copy(&ray.direction, -1.0);
-                    apply_lighting(scene, &intersection, &view, &normal, &material.color);
+                    if (closest_object != NONE)
+                    {
+                        //determine the apparent color of the intersection point based on the lighting in the scene
+                        Vector view = scale_vector_copy(&ray.direction, -1.0);
+                        apply_lighting(scene, &intersection, &view, &normal, &material);
+                    }
 
                     //accumulate the total color contribution, and update the color to merge into the pixel according to the contribution
                     color_contribution_total += color_contribution;
@@ -891,20 +901,20 @@ int main()
     // #define NUM_SPHERES 6
     //objects in the scene
     Sphere spheres[] = {
-        {.center = {.x = 0.25, .y = 0.0, .z = 0.0}, .material = {.color = {.x = 1.0, .y = 1.0, .z = 1.0}, .reflectivity = 1.0}, .radius = 0.125},
-        {.center = {.x = 0.0, .y = 0.25, .z = 0.0}, .material = {.color = {.x = 0.5, .y = 0.5, .z = 0.5}, .reflectivity = 0.8}, .radius = 0.125},
-        {.center = {.x = 0.0, .y = 0.0, .z = 0.25}, .material = {.color = {.x = 0.0, .y = 0.0, .z = 0.0}, .reflectivity = 0.8}, .radius = 0.125},
-        {.center = {.x = -0.25, .y = 0.0, .z = 0.0}, .material = {.color = {.x = 0.0, .y = 1.0, .z = 1.0}, .reflectivity = 0.8}, .radius = 0.125},
-        {.center = {.x = 0.0, .y = -0.25, .z = 0.0}, .material = {.color = {.x = 1.0, .y = 0.0, .z = 1.0}, .reflectivity = 0.8}, .radius = 0.125},
-        {.center = {.x = 0.0, .y = 0.0, .z = -0.25}, .material = {.color = {.x = 1.0, .y = 1.0, .z = 0.0}, .reflectivity = 0.8}, .radius = 0.125},
+        {.center = {.x = 0.25, .y = 0.0, .z = 0.0}, .material = {.color = {.x = 1.0, .y = 1.0, .z = 1.0}, .reflectivity = 1.0, .specularity = 10.0}, .radius = 0.125},
+        {.center = {.x = 0.0, .y = 0.25, .z = 0.0}, .material = {.color = {.x = 0.5, .y = 0.5, .z = 0.5}, .reflectivity = 0.8, .specularity = 10.0}, .radius = 0.125},
+        {.center = {.x = 0.0, .y = 0.0, .z = 0.25}, .material = {.color = {.x = 0.0, .y = 0.0, .z = 0.0}, .reflectivity = 0.8, .specularity = 10.0}, .radius = 0.125},
+        {.center = {.x = -0.25, .y = 0.0, .z = 0.0}, .material = {.color = {.x = 0.0, .y = 1.0, .z = 1.0}, .reflectivity = 0.8, .specularity = 10.0}, .radius = 0.125},
+        {.center = {.x = 0.0, .y = -0.25, .z = 0.0}, .material = {.color = {.x = 1.0, .y = 0.0, .z = 1.0}, .reflectivity = 0.8, .specularity = 10.0}, .radius = 0.125},
+        {.center = {.x = 0.0, .y = 0.0, .z = -0.25}, .material = {.color = {.x = 1.0, .y = 1.0, .z = 0.0}, .reflectivity = 0.8, .specularity = 10.0}, .radius = 0.125},
     };
     const int NUM_SPHERES = sizeof(spheres) / sizeof(Sphere);
 
     Plane ground = {
         .normal = {.x = 0.0, .y = 1.0, .z = 0.0},
         .point = {.x = 0.0, .y = -2.0, .z = 0.0},
-        .even_material = {.color = GROUND_EVEN_COLOR, .reflectivity = 0.2},
-        .odd_material = {.color = GROUND_ODD_COLOR, .reflectivity = 0.2},
+        .even_material = {.color = GROUND_EVEN_COLOR, .reflectivity = 0.2, .specularity = 10.0},
+        .odd_material = {.color = GROUND_ODD_COLOR, .reflectivity = 0.2, .specularity = 10.0},
     };
     //TODO->other objects
 
