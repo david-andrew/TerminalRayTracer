@@ -365,6 +365,15 @@ Vector multiply_vectors_copy(Vector *vector1, Vector *vector2)
     return result;
 }
 
+// //function to compute the distance between two points
+// double point_distance(Point *point1, Point *point2)
+// {
+//     double dx = point1->x - point2->x;
+//     double dy = point1->y - point2->y;
+//     double dz = point1->z - point2->z;
+//     return sqrt(dx * dx + dy * dy + dz * dz);
+// }
+
 //function to rotate a basis by another basis (rotation matrix) and ensure orthonomal
 void rotate_basis(Basis *basis, Basis *rotation)
 {
@@ -615,13 +624,9 @@ void apply_lighting(Scene *scene, Point *intersection, Vector *view, Vector *nor
         //create a ray for this light source to see if it is blocked by any objects in the scene
         Vector light_direction = scale_vector_copy(&(scene->directional_lights[i].direction), -1.0);
         normalize_vector(&light_direction);
-        Ray to_light = {
-            .origin = *intersection,
-            .direction = light_direction,
-        };
 
         //check if the light is blocked by any objects in the scene
-        ObjectType blocking_object = trace_ray(scene, &to_light, NULL, NULL, NULL);
+        ObjectType blocking_object = trace_ray(scene, &(Ray){.origin = *intersection, .direction = light_direction}, NULL, NULL, NULL);
         if (blocking_object == NONE)
         {
             //compute the diffuse and specular contributions
@@ -630,23 +635,48 @@ void apply_lighting(Scene *scene, Point *intersection, Vector *view, Vector *nor
             //compute the blinn-phong contribution
             Vector half = add_vectors_copy(&light_direction, view);
             normalize_vector(&half);
-            // double specular_contribution = pow(clamp(dot_product(normal, &half), 0.0, 1.0), material->specularity);
-            // Vector to_view = subtract_vectors_copy(view, &light_direction);
-            // Vector to_view = subtract_vectors_copy(view, intersection);
-            // Vector specular_contribution = scale_vector_copy(&scene->directional_lights[i].color, pow(clamp(dot_product(view, &(scale_vector_copy(&light_direction, -1.0))), 0.0, 1.0), scene->material.shininess));
-            // double diffuse_strength = dot_product(normal, &light_direction);
-            // Vector specular_contribution = scale_vector_copy(&light_direction,
-            //                                                  pow(dot_product(view, &light_direction),
-            //                                                      scene->spheres[0].material.specular_exponent));
+            Vector specular_contribution = scale_vector_copy(&scene->directional_lights[i].color, pow(clamp(dot_product(normal, &half), 0.0, 1.0), material->specularity));
 
             //add the contributions to the color
             multiply_vectors(&diffuse_contribution, &material->color);
             add_vectors(&output_color, &diffuse_contribution);
+            add_vectors(&output_color, &specular_contribution);
         }
     }
 
     //compute the contribution of the point lights
-    //TODO
+    for (int i = 0; i < scene->num_point_lights; i++)
+    {
+        //create a ray for this light source to see if it is blocked by any objects in the scene
+        Vector light_direction = subtract_vectors_copy((Vector *)&(scene->point_lights[i].position), (Vector *)intersection);
+        double light_distance_squared = dot_product(&light_direction, &light_direction);
+        double light_intensity = clamp(scene->point_lights[i].intensity / light_distance_squared, 0.0, 1.0);
+        // light_distance = sqrt(light_distance);
+        normalize_vector(&light_direction);
+
+        //check if the light is blocked by any objects in the scene
+        Point point;
+        ObjectType blocking_object = trace_ray(scene, &(Ray){.origin = *intersection, .direction = light_direction}, &point, NULL, NULL);
+        //distance to intersection
+        Vector to_intersection = subtract_vectors_copy((Vector *)&point, (Vector *)intersection);
+        double intersection_distance_squared = dot_product(&to_intersection, &to_intersection);
+
+        if (blocking_object == NONE || light_distance_squared < intersection_distance_squared)
+        {
+            //compute the diffuse and specular contributions
+            Vector diffuse_contribution = scale_vector_copy(&scene->point_lights[i].color, light_intensity * clamp(dot_product(normal, &light_direction), 0.0, 1.0));
+
+            //compute the blinn-phong contribution
+            Vector half = add_vectors_copy(&light_direction, view);
+            normalize_vector(&half);
+            Vector specular_contribution = scale_vector_copy(&scene->point_lights[i].color, light_intensity * pow(clamp(dot_product(normal, &half), 0.0, 1.0), material->specularity));
+
+            //add the contributions to the color
+            multiply_vectors(&diffuse_contribution, &material->color);
+            add_vectors(&output_color, &diffuse_contribution);
+            add_vectors(&output_color, &specular_contribution);
+        }
+    }
 
     //clamp the color so that it is not greater than 1.0
     clamp_vector(&output_color, 0.0, 1.0);
@@ -901,31 +931,31 @@ int main()
     // #define NUM_SPHERES 6
     //objects in the scene
     Sphere spheres[] = {
-        {.center = {.x = 0.25, .y = 0.0, .z = 0.0}, .material = {.color = {.x = 1.0, .y = 1.0, .z = 1.0}, .reflectivity = 1.0, .specularity = 10.0}, .radius = 0.125},
-        {.center = {.x = 0.0, .y = 0.25, .z = 0.0}, .material = {.color = {.x = 0.5, .y = 0.5, .z = 0.5}, .reflectivity = 0.8, .specularity = 10.0}, .radius = 0.125},
-        {.center = {.x = 0.0, .y = 0.0, .z = 0.25}, .material = {.color = {.x = 0.0, .y = 0.0, .z = 0.0}, .reflectivity = 0.8, .specularity = 10.0}, .radius = 0.125},
-        {.center = {.x = -0.25, .y = 0.0, .z = 0.0}, .material = {.color = {.x = 0.0, .y = 1.0, .z = 1.0}, .reflectivity = 0.8, .specularity = 10.0}, .radius = 0.125},
-        {.center = {.x = 0.0, .y = -0.25, .z = 0.0}, .material = {.color = {.x = 1.0, .y = 0.0, .z = 1.0}, .reflectivity = 0.8, .specularity = 10.0}, .radius = 0.125},
-        {.center = {.x = 0.0, .y = 0.0, .z = -0.25}, .material = {.color = {.x = 1.0, .y = 1.0, .z = 0.0}, .reflectivity = 0.8, .specularity = 10.0}, .radius = 0.125},
+        {.center = {.x = 0.25, .y = 0.0, .z = 0.0}, .material = {.color = {.x = 1.0, .y = 1.0, .z = 1.0}, .reflectivity = 1.0, .specularity = 100.0}, .radius = 0.125},
+        {.center = {.x = 0.0, .y = 0.25, .z = 0.0}, .material = {.color = {.x = 0.5, .y = 0.5, .z = 0.5}, .reflectivity = 0.8, .specularity = 100.0}, .radius = 0.125},
+        {.center = {.x = 0.0, .y = 0.0, .z = 0.25}, .material = {.color = {.x = 0.0, .y = 0.0, .z = 0.0}, .reflectivity = 0.8, .specularity = 100.0}, .radius = 0.125},
+        {.center = {.x = -0.25, .y = 0.0, .z = 0.0}, .material = {.color = {.x = 0.0, .y = 1.0, .z = 1.0}, .reflectivity = 0.8, .specularity = 100.0}, .radius = 0.125},
+        {.center = {.x = 0.0, .y = -0.25, .z = 0.0}, .material = {.color = {.x = 1.0, .y = 0.0, .z = 1.0}, .reflectivity = 0.8, .specularity = 100.0}, .radius = 0.125},
+        {.center = {.x = 0.0, .y = 0.0, .z = -0.25}, .material = {.color = {.x = 1.0, .y = 1.0, .z = 0.0}, .reflectivity = 0.8, .specularity = 100.0}, .radius = 0.125},
     };
     const int NUM_SPHERES = sizeof(spheres) / sizeof(Sphere);
 
     Plane ground = {
         .normal = {.x = 0.0, .y = 1.0, .z = 0.0},
         .point = {.x = 0.0, .y = -2.0, .z = 0.0},
-        .even_material = {.color = GROUND_EVEN_COLOR, .reflectivity = 0.2, .specularity = 10.0},
-        .odd_material = {.color = GROUND_ODD_COLOR, .reflectivity = 0.2, .specularity = 10.0},
+        .even_material = {.color = GROUND_EVEN_COLOR, .reflectivity = 0.2, .specularity = 100.0},
+        .odd_material = {.color = GROUND_ODD_COLOR, .reflectivity = 0.2, .specularity = 100.0},
     };
     //TODO->other objects
 
     //lights in the scene
     DirectionalLight directional_lights[] = {{
-        .direction = {.x = 1.0, .y = -1.0, .z = 1.0},
+        .direction = {.x = 1.0, .y = -1.0, .z = -1.0},
         .color = {.x = 1.0, .y = 1.0, .z = 1.0},
     }};
     const int NUM_DIRECTIONAL_LIGHTS = sizeof(directional_lights) / sizeof(DirectionalLight);
     PointLight point_lights[] = {
-        {.position = {.x = 0.0, .y = 0.0, .z = 0.0}, .color = {.x = 1.0, .y = 1.0, .z = 1.0}, .intensity = 1.0},
+        {.position = {.x = 0.0, .y = 0.0, .z = 0.0}, .color = {.x = 1.0, .y = 1.0, .z = 1.0}, .intensity = 100.0},
         // {.position = {.x = 0.0, .y = 0.0, .z = 0.0}, .color = {.x = 1.0, .y = 1.0, .z = 1.0}, .intensity = 1.0},
         // {.position = {.x = 0.0, .y = 0.0, .z = 0.0}, .color = {.x = 1.0, .y = 1.0, .z = 1.0}, .intensity = 1.0},
     };
@@ -972,7 +1002,7 @@ int main()
         init_frame(&tf1);
         init_frame(&(scene.camera.frame));
         rotate_basis_x(&tf0.basis, 2.0 * PI * t * -0.005);
-        rotate_basis_y(&tf0.basis, 2.0 * PI * t * 0.003);
+        // rotate_basis_y(&tf0.basis, 2.0 * PI * t * 0.003);
         Vector root_to_camera = {.x = 0.0, .y = 0.0, .z = 1.99};
         add_vectors((Vector *)&tf1.origin, &root_to_camera);
         transform_frame(&scene.camera.frame, &tf1);
