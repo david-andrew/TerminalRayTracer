@@ -30,14 +30,15 @@
 #include <time.h>
 #include <math.h>
 #include <string.h>
+#include <signal.h>
 
 //math constants
 #define PI 3.14159265358979323846
 #define EPSILON 0.000001
 
 //constants for the screen
-#define SCREEN_WIDTH 480
-#define SCREEN_HEIGHT 280
+#define SCREEN_WIDTH 80
+#define SCREEN_HEIGHT 80
 
 #define FRAME_RATE 60                                              //frames per second
 #define FRAME_DURATION 1.0 / FRAME_RATE                            //time between frames
@@ -121,14 +122,10 @@ typedef struct
 //struct for representing a cubemap skybox. each face is a ppm texture mapped to a 1D list of colors
 typedef struct
 {
-    Color *pX;
-    Color *nX;
-    Color *pY;
-    Color *nY;
-    Color *pZ;
-    Color *nZ;
+    Color *colors[6]; //order is +X, -X, +Y, -Y, +Z, -Z
     int dim;
 } Skybox;
+Skybox global_skybox = {.colors = {NULL, NULL, NULL, NULL, NULL, NULL}, .dim = -1}; //global skybox so that the cleanup handler can access it
 
 //struct for a directional light
 typedef struct
@@ -360,70 +357,49 @@ void read_ppm(char *filename, Color **colors_ptr, int *width, int *height)
 //the ppm files should be of the same size and should have matching widths and heights
 void load_skybox(Skybox *skybox, char *skybox_name)
 {
-    char *file_names[] = {"-X.ppm", "+X.ppm", "-Y.ppm", "+Y.ppm", "-Z.ppm", "+Z.ppm"};
+    char *file_names[] = {"+X.ppm", "-X.ppm", "+Y.ppm", "-Y.ppm", "+Z.ppm", "-Z.ppm"};
 
-    // char ppm_file_name[100];
-    // int ppm_width, ppm_height;
-    // int ppm_size;
-    // int ppm_index;
-    // int ppm_row, ppm_column;
-    // int ppm_color_index;
-    // Color ppm_color;
-    // FILE *ppm_file;
+    //create buffer to hold the path to the cubemap folder
+    char rest[] = "skybox//+X.ppm";
+    char *path = (char *)malloc(sizeof(char) * (strlen(skybox_name) + sizeof(rest)));
 
-    // //load the skybox
-    // sprintf(ppm_file_name, "skybox/%s/X.ppm", skybox_name);
-    // ppm_file = fopen(ppm_file_name, "rb");
-    // fscanf(ppm_file, "P6\n%d %d\n255\n", &ppm_width, &ppm_height);
-    // ppm_size = ppm_width * ppm_height;
-    // skybox->pX = (Color *)malloc(sizeof(Color) * ppm_size);
-    // for (ppm_row = 0; ppm_row < ppm_height; ppm_row++)
-    // {
-    //     for (ppm_column = 0; ppm_column < ppm_width; ppm_column++)
-    //     {
-    //         ppm_color_index = ppm_row * ppm_width + ppm_column;
-    //         ppm_color.r = fgetc(ppm_file);
-    //         ppm_color.g = fgetc(ppm_file);
-    //         ppm_color.b = fgetc(ppm_file);
-    //         skybox->pX[ppm_color_index] = ppm_color;
-    //     }
-    // }
-    // fclose(ppm_file);
+    //width/height of the cubemap textures
+    int dim = -1;
 
-    // sprintf(ppm_file_name, "skybox/%s/-X.ppm", skybox_name);
-    // ppm_file = fopen(ppm_file_name, "rb");
-    // fscanf(ppm_file, "P6\n%d %d\n255\n", &ppm_width, &ppm_height);
-    // ppm_size = ppm_width * ppm_height;
-    // skybox->mX = (Color *)malloc(sizeof(Color) * ppm_size);
-    // for (ppm_row = 0; ppm_row < ppm_height; ppm_row++)
-    // {
-    //     for (ppm_column = 0; ppm_column < ppm_width; ppm_column++)
-    //     {
-    //         ppm_color_index = ppm_row * ppm_width + ppm_column;
-    //         ppm_color.r = fgetc(ppm_file);
-    //         ppm_color.g = fgetc(ppm_file);
-    //         ppm_color.b = fgetc(ppm_file);
-    //         skybox->mX[ppm_color_index] = ppm_color;
-    //     }
-    // }
-    // fclose(ppm_file);
+    //iterate over each ppm in the cubemap folder, and load them into the skybox
+    for (int i = 0; i < 6; i++)
+    {
+        //create the path to the ppm file
+        sprintf(path, "skybox/%s/%s", skybox_name, file_names[i]);
 
-    // sprintf(ppm_file_name, "skybox/%s/+X.ppm", skybox_name);
-    // ppm_file = fopen(ppm_file_name, "rb");
-    // fscanf(ppm_file, "P6\n%d %d\n255\n", &ppm_width, &ppm_height);
-    // ppm_size = ppm_width * ppm_height;
-    // skybox->pX = (Color *)malloc(sizeof(Color) * ppm_size);
-    // for (ppm_row = 0; ppm_row < ppm_height; ppm_row++)
-    // {
-    //     for (ppm_column = 0; ppm_column < ppm_width; ppm_column++)
-    //     {
-    //         ppm_color_index = ppm_row * ppm_width + ppm_column;
-    //         ppm_color.r = fgetc(ppm_file);
-    //         ppm_color.g = fgetc(ppm_file);
-    //         ppm_color.b = fgetc(ppm_file);
-    //         skybox->pX[ppm_color_index] = ppm_color;
-    //     }
-    // }
+        //get the ppm for this face
+        Color *colors;
+        int width, height;
+        read_ppm(path, &colors, &width, &height);
+
+        //ensure that the width and height are the same for all the faces
+        if (dim == -1)
+            dim = width;
+        if (dim != width || dim != height)
+        {
+            printf("Error: all faces of the skybox must be the same size\n");
+            exit(1);
+        }
+
+        //set the skybox face
+        skybox->colors[i] = colors;
+    }
+
+    skybox->dim = dim;
+}
+
+//function for freeing the memory allocated for a skybox
+void free_skybox(Skybox *skybox)
+{
+    if (skybox->dim < 0)
+        return;
+    for (int i = 0; i < 6; i++)
+        free(skybox->colors[i]);
 }
 
 //function to normalize a vector
@@ -1099,6 +1075,23 @@ void print_ppm(Color *colors, int width, int height)
 //     }
 // }
 
+//callback function to clean up the global skybox on ctrl-c
+void cleanup_skybox()
+{
+    //free the memory allocated for the skybox
+    free_skybox(&global_skybox);
+}
+
+//function to call all cleanup functions
+void sigint_handler(int sig)
+{
+    //clean up the global skybox
+    cleanup_skybox();
+
+    //exit the program
+    exit(0);
+}
+
 //test/create a simple scene with a single sphere in the middle and the camera looking directly at it
 int main()
 {
@@ -1107,6 +1100,12 @@ int main()
 
     //initialize the screen buffer
     initialize_screenbuffer();
+
+    //load in the skybox to the global skybox. using milky_way cube map for now
+    load_skybox(&global_skybox, "milky_way");
+
+    //set the skybox cleanup function to be called on ctrl-c
+    signal(SIGINT, sigint_handler);
 
     //get the time that the program starts
     struct timespec start;
