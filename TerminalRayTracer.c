@@ -77,7 +77,7 @@ typedef struct
 Vector SKY_COLOR = {0.5372549019607842924, 0.7686274509803922017, 0.9568627450980392579};
 // Vector SKY_COLOR = {0.5, 0.5, 0.85};
 Vector BACKGROUND_COLOR = {0.0, 0.0, 0.0};
-Vector GROUND_EVEN_COLOR = {0.0, 0.0, 0.0};
+Vector GROUND_EVEN_COLOR = {1.0, 1.0, 1.0};
 Vector GROUND_ODD_COLOR = {1.0, 0.0, 0.0};
 
 //struct for a basis, i.e. x y and z axis of a reference frame
@@ -630,17 +630,17 @@ void apply_lighting(Scene *scene, Point *intersection, Vector *view, Vector *nor
         if (blocking_object == NONE)
         {
             //compute the diffuse and specular contributions
-            Vector diffuse_contribution = scale_vector_copy(&scene->directional_lights[i].color, clamp(dot_product(normal, &light_direction), 0.0, 1.0));
+            Vector diffuse_contribution = scale_vector_copy(&scene->directional_lights[i].color, fmin(dot_product(normal, &light_direction), 1.0));
 
-            //compute the blinn-phong contribution
-            Vector half = add_vectors_copy(&light_direction, view);
-            normalize_vector(&half);
-            Vector specular_contribution = scale_vector_copy(&scene->directional_lights[i].color, pow(clamp(dot_product(normal, &half), 0.0, 1.0), material->specularity));
+            // //compute the blinn-phong contribution
+            // Vector half = add_vectors_copy(&light_direction, view);
+            // normalize_vector(&half);
+            // Vector specular_contribution = scale_vector_copy(&scene->directional_lights[i].color, pow(clamp(dot_product(normal, &half), 0.0, 1.0), material->specularity));
 
             //add the contributions to the color
             multiply_vectors(&diffuse_contribution, &material->color);
             add_vectors(&output_color, &diffuse_contribution);
-            add_vectors(&output_color, &specular_contribution);
+            // add_vectors(&output_color, &specular_contribution);
         }
     }
 
@@ -664,17 +664,17 @@ void apply_lighting(Scene *scene, Point *intersection, Vector *view, Vector *nor
         if (blocking_object == NONE || light_distance_squared < intersection_distance_squared)
         {
             //compute the diffuse and specular contributions
-            Vector diffuse_contribution = scale_vector_copy(&scene->point_lights[i].color, light_intensity * clamp(dot_product(normal, &light_direction), 0.0, 1.0));
+            Vector diffuse_contribution = scale_vector_copy(&scene->point_lights[i].color, light_intensity * fmin(dot_product(normal, &light_direction), 1.0));
 
-            //compute the blinn-phong contribution
-            Vector half = add_vectors_copy(&light_direction, view);
-            normalize_vector(&half);
-            Vector specular_contribution = scale_vector_copy(&scene->point_lights[i].color, light_intensity * pow(clamp(dot_product(normal, &half), 0.0, 1.0), material->specularity));
+            // //compute the blinn-phong contribution
+            // Vector half = add_vectors_copy(&light_direction, view);
+            // normalize_vector(&half);
+            // Vector specular_contribution = scale_vector_copy(&scene->point_lights[i].color, light_intensity * pow(clamp(dot_product(normal, &half), 0.0, 1.0), material->specularity));
 
             //add the contributions to the color
             multiply_vectors(&diffuse_contribution, &material->color);
             add_vectors(&output_color, &diffuse_contribution);
-            add_vectors(&output_color, &specular_contribution);
+            // add_vectors(&output_color, &specular_contribution);
         }
     }
 
@@ -931,9 +931,9 @@ int main()
     // #define NUM_SPHERES 6
     //objects in the scene
     Sphere spheres[] = {
-        {.center = {.x = 0.25, .y = 0.0, .z = 0.0}, .material = {.color = {.x = 1.0, .y = 1.0, .z = 1.0}, .reflectivity = 1.0, .specularity = 100.0}, .radius = 0.125},
-        {.center = {.x = 0.0, .y = 0.25, .z = 0.0}, .material = {.color = {.x = 0.5, .y = 0.5, .z = 0.5}, .reflectivity = 0.8, .specularity = 100.0}, .radius = 0.125},
-        {.center = {.x = 0.0, .y = 0.0, .z = 0.25}, .material = {.color = {.x = 0.0, .y = 0.0, .z = 0.0}, .reflectivity = 0.8, .specularity = 100.0}, .radius = 0.125},
+        {.center = {.x = 0.25, .y = 0.0, .z = 0.0}, .material = {.color = {.x = 1.0, .y = 0.0, .z = 0.0}, .reflectivity = 1.0, .specularity = 100.0}, .radius = 0.125},
+        {.center = {.x = 0.0, .y = 0.25, .z = 0.0}, .material = {.color = {.x = 0.0, .y = 1.0, .z = 0.0}, .reflectivity = 0.8, .specularity = 100.0}, .radius = 0.125},
+        {.center = {.x = 0.0, .y = 0.0, .z = 0.25}, .material = {.color = {.x = 0.0, .y = 0.0, .z = 1.0}, .reflectivity = 0.8, .specularity = 100.0}, .radius = 0.125},
         {.center = {.x = -0.25, .y = 0.0, .z = 0.0}, .material = {.color = {.x = 0.0, .y = 1.0, .z = 1.0}, .reflectivity = 0.8, .specularity = 100.0}, .radius = 0.125},
         {.center = {.x = 0.0, .y = -0.25, .z = 0.0}, .material = {.color = {.x = 1.0, .y = 0.0, .z = 1.0}, .reflectivity = 0.8, .specularity = 100.0}, .radius = 0.125},
         {.center = {.x = 0.0, .y = 0.0, .z = -0.25}, .material = {.color = {.x = 1.0, .y = 1.0, .z = 0.0}, .reflectivity = 0.8, .specularity = 100.0}, .radius = 0.125},
@@ -950,12 +950,12 @@ int main()
 
     //lights in the scene
     DirectionalLight directional_lights[] = {{
-        .direction = {.x = 1.0, .y = -1.0, .z = -1.0},
+        .direction = {.x = -1.0, .y = -1.0, .z = -1.0},
         .color = {.x = 1.0, .y = 1.0, .z = 1.0},
     }};
     const int NUM_DIRECTIONAL_LIGHTS = sizeof(directional_lights) / sizeof(DirectionalLight);
     PointLight point_lights[] = {
-        {.position = {.x = 0.0, .y = 0.0, .z = 0.0}, .color = {.x = 1.0, .y = 1.0, .z = 1.0}, .intensity = 100.0},
+        {.position = {.x = 0.0, .y = 0.0, .z = 0.0}, .color = {.x = 1.0, .y = 1.0, .z = 1.0}, .intensity = 10.0},
         // {.position = {.x = 0.0, .y = 0.0, .z = 0.0}, .color = {.x = 1.0, .y = 1.0, .z = 1.0}, .intensity = 1.0},
         // {.position = {.x = 0.0, .y = 0.0, .z = 0.0}, .color = {.x = 1.0, .y = 1.0, .z = 1.0}, .intensity = 1.0},
     };
@@ -1026,5 +1026,15 @@ int main()
             const struct timespec delay = {.tv_sec = nanos_to_sleep / 1000000000, .tv_nsec = nanos_to_sleep % 1000000000};
             nanosleep(&delay, NULL);
         }
+
+        //compute the duration of the frame including any sleep time
+        timespec_get(&ts, TIME_UTC);
+        long long end_nanos_2 = (ts.tv_sec - start.tv_sec) * 1000000000 + ts.tv_nsec - start.tv_nsec;
+        long long frame_duration_nanos = end_nanos_2 - start_nanos;
+
+        //print out the frame rate at the top of the screen, and move the cursor back
+        fputs("\033[0;0H", stdout);
+        printf("%.02f fps\n", 1.0 / ((double)frame_duration_nanos / 1000000000.0));
+        fputs("\033[0;0H", stdout);
     }
 }
