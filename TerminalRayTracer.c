@@ -120,6 +120,7 @@ typedef struct
 {
     Point position;
     Vector color;
+    double intensity;
 } PointLight;
 
 //struct for a sphere
@@ -163,7 +164,8 @@ typedef struct
     Sphere *spheres;
     int num_spheres;
     Plane ground;
-    DirectionalLight directional_light;
+    DirectionalLight *directional_lights;
+    int num_directional_lights;
     PointLight *point_lights;
     int num_point_lights;
     Camera camera;
@@ -475,7 +477,10 @@ ObjectType trace_ray(Scene *scene, Ray *ray, Point *intersection, Vector *normal
     double closest_distance = INFINITY;
     ObjectType closest_object = NONE;
     int closest_index = -1;
-    Point point; //point to use when computing the intersection point
+    Point point;                //point to use when computing the intersection point
+    Point closest_intersection; //closest intersection point
+    Vector closest_normal;      //normal of the closest intersection point
+    Material closest_material;  //material of the closest intersection point
 
     //check each of the spheres if they are the closest intersection
     for (int i = 0; i < scene->num_spheres; i++)
@@ -494,9 +499,11 @@ ObjectType trace_ray(Scene *scene, Ray *ray, Point *intersection, Vector *normal
                 closest_object = SPHERE;
                 closest_distance = square_distance;
                 closest_index = i;
-                *intersection = point;
-                *normal = subtract_vectors_copy((Vector *)&point, (Vector *)&(scene->spheres[i].center));
-                *material = scene->spheres[i].material;
+
+                //assign the output values
+                closest_intersection = point;
+                closest_normal = subtract_vectors_copy((Vector *)&point, (Vector *)&(scene->spheres[i].center));
+                closest_material = scene->spheres[i].material;
             }
         }
     }
@@ -515,11 +522,14 @@ ObjectType trace_ray(Scene *scene, Ray *ray, Point *intersection, Vector *normal
         {
             closest_object = GROUND;
             closest_distance = square_distance;
-            *intersection = point;
-            *normal = scene->ground.normal;
+
+            //assign the output values if they aren't null
+            closest_intersection = point;
+            closest_normal = scene->ground.normal;
+
             //ground material is a checker pattern based on if the intersection point's coordinates are even/odd
             int odd = (int)(floor(point.x) + floor(point.z)) & 1;
-            *material = odd ? scene->ground.odd_material : scene->ground.even_material;
+            closest_material = odd ? scene->ground.odd_material : scene->ground.even_material;
         }
     }
 
@@ -528,15 +538,136 @@ ObjectType trace_ray(Scene *scene, Ray *ray, Point *intersection, Vector *normal
     //if no object was intersected, set the
     if (closest_object == NONE)
     {
-        *intersection = ray->origin;
-        *normal = ray->direction;
-        *material = scene->sky;
+        closest_intersection = ray->origin;
+        closest_normal = ray->direction;
+        closest_material = scene->sky;
     }
 
     //ensure the normal is normalized
-    normalize_vector(normal);
+    normalize_vector(&closest_normal);
+
+    //return the closest intersection point, normal, and material if they are not null
+    if (intersection != NULL)
+        *intersection = closest_intersection;
+    if (normal != NULL)
+        *normal = closest_normal;
+    if (material != NULL)
+        *material = closest_material;
 
     return closest_object;
+}
+
+//function to apply lighting to a point in the scene. resulting color is stored in color which contains the initial unlit color of the object
+//specular highlights are computed using the Blinn-Phong model
+void apply_lighting(Scene *scene, Point *intersection, Vector *view, Vector *normal, Vector *color)
+{
+    //compute the contribution of the directional lights
+    for (int i = 0; i < scene->num_directional_lights; i++)
+    {
+        //create a ray for this light source to see if it is blocked by any objects in the scene
+        Vector light_direction = scale_vector_copy(&(scene->directional_lights[i].direction), -1.0);
+        Ray to_light = {
+            .origin = *intersection,
+            .direction = light_direction,
+        };
+
+        //check if the light is blocked by any objects in the scene
+        Point light_intersection;
+        ObjectType light_object = trace_ray(scene, &to_light, &light_intersection, NULL, NULL);
+
+        // //compute the direction of the light
+        // Vector light_direction;
+        // set_vector(&light_direction,
+        //            scene->directional_lights[i].direction.x,
+        //            scene->directional_lights[i].direction.y,
+        //            scene->directional_lights[i].direction.z);
+        // normalize_vector(&light_direction);
+
+        // //compute the diffuse component
+        // double diffuse_contribution = dot_product(normal, &light_direction);
+        // if (diffuse_contribution > 0.0)
+        // {
+        //     //compute the color of the light
+        //     Vector light_color;
+        //     set_vector(&light_color,
+        //                scene->directional_lights[i].color.r,
+        //                scene->directional_lights[i].color.g,
+        //                scene->directional_lights[i].color.b);
+
+        //     //compute the color of the light after being attenuated
+        //     Vector attenuated_light_color;
+        //     scale_vector(&light_color, scene->directional_lights[i].attenuation);
+
+        //     //compute the color of the light after being reflected
+        //     Vector reflected_light_color;
+        //     Vector reflected_light_direction;
+        //     set_vector(&reflected_light_direction,
+        //                light_direction.x - 2.0 * dot_product(normal, &light_direction) * normal->x,
+        //                light_direction.y - 2.0 * dot_product(normal, &light_direction) * normal->y,
+        //                light_direction.z - 2.0 * dot_product(normal, &light_direction) * normal->z);
+        //     normalize_vector(&reflected_light_direction);
+        //     double specular_contribution = dot_product(view, &reflected_light_direction);
+
+        // //compute ambient lighting
+        // double ambient_red = scene->ambient.red * color->red;
+        // double ambient_green = scene->ambient.green * color->green;
+        // double ambient_blue = scene->ambient.blue * color->blue;
+
+        // //compute diffuse lighting
+        // double diffuse_red = 0.0;
+        // double diffuse_green = 0.0;
+        // double diffuse_blue = 0.0;
+        // for (int i = 0; i < scene->num_lights; i++)
+        // {
+        //     Vector light_vector;
+        //     set_vector(&light_vector,
+        //                scene->lights[i].position.x - intersection->x,
+        //                scene->lights[i].position.y - intersection->y,
+        //                scene->lights[i].position.z - intersection->z);
+        //     normalize_vector(&light_vector);
+
+        //     double dot_product = dot_product(&light_vector, normal);
+        //     if (dot_product > 0.0)
+        //     {
+        //         diffuse_red += scene->lights[i].color.red * color->red * dot_product;
+        //         diffuse_green += scene->lights[i].color.green * color->green * dot_product;
+        //         diffuse_blue += scene->lights[i].color.blue * color->blue * dot_product;
+        //     }
+        // }
+
+        // //compute specular lighting
+        // double specular_red = 0.0;
+        // double specular_green = 0.0;
+        // double specular_blue = 0.0;
+        // for (int i = 0; i < scene->num_lights; i++)
+        // {
+        //     Vector light_vector;
+        //     set_vector(&light_vector,
+        //                scene->lights[i].position.x - intersection->x,
+        //                scene->lights[i].position.y - intersection->y,
+        //                scene->lights[i].position.z - intersection->z);
+        //     normalize_vector(&light_vector);
+
+        //     Vector reflection_vector;
+        //     set_vector(&reflection_vector,
+        //                2.0 * dot_product(normal, &light_vector) * *normal - light_vector);
+        //     normalize_vector(&reflection_vector);
+
+        //     Vector view_vector;
+        //     set_vector(&view_vector,
+        //                -intersection->x,
+        //                -intersection->y,
+        //                -intersection->z);
+        //     normalize_vector(&view_vector);
+        //     double dot_product = dot_product(&reflection_vector, &view_vector);
+        //     if (dot_product > 0.0)
+        //     {
+        //         specular_red += scene->lights[i].color.red * color->red * pow(dot_product, scene->material.shininess);
+        //         specular_green += scene->lights[i].color.green * color->green * pow(dot_product, scene->material.shininess);
+        //         specular_blue += scene->lights[i].color.blue * color->blue * pow(dot_product, scene->material.shininess);
+        //     }
+        // }
+    }
 }
 
 //function to project the scene onto a screen
@@ -599,6 +730,10 @@ void project_scene(Scene *scene, Screen *screen)
                     Vector normal;
                     Material material;
                     ObjectType closest_object = trace_ray(scene, &ray, &intersection, &normal, &material);
+
+                    //determine the apparent color of the intersection point based on the lighting in the scene
+                    Vector view = scale_vector_copy(&ray.direction, -1.0);
+                    apply_lighting(scene, &intersection, &view, &normal, &material.color);
 
                     //accumulate the total color contribution, and update the color to merge into the pixel according to the contribution
                     color_contribution_total += color_contribution;
@@ -766,14 +901,6 @@ void buffered_draw_screen(Screen *screen)
 //     }
 // }
 
-// //function to get the current linux epoch time in milliseconds
-// long get_time_millis()
-// {
-//     struct timespec spec;
-//     clock_gettime(CLOCK_REALTIME, &spec);
-//     return spec.tv_sec * 1000 + spec.tv_nsec / 1000000;
-// }
-
 //test/create a simple scene with a single sphere in the middle and the camera looking directly at it
 int main()
 {
@@ -787,9 +914,10 @@ int main()
     struct timespec start;
     timespec_get(&start, TIME_UTC);
 
-//create a list of 6 spheres 1 for each direction in 3D
-#define NUM_SPHERES 6
-    Sphere spheres[NUM_SPHERES] = {
+    //create a list of 6 spheres 1 for each direction in 3D
+    // #define NUM_SPHERES 6
+    //objects in the scene
+    Sphere spheres[] = {
         {.center = {.x = 0.25, .y = 0.0, .z = 0.0}, .material = {.color = {.x = 1.0, .y = 1.0, .z = 1.0}, .reflectivity = 1.0}, .radius = 0.125},
         {.center = {.x = 0.0, .y = 0.25, .z = 0.0}, .material = {.color = {.x = 0.5, .y = 0.5, .z = 0.5}, .reflectivity = 0.8}, .radius = 0.125},
         {.center = {.x = 0.0, .y = 0.0, .z = 0.25}, .material = {.color = {.x = 0.0, .y = 0.0, .z = 0.0}, .reflectivity = 0.8}, .radius = 0.125},
@@ -797,6 +925,7 @@ int main()
         {.center = {.x = 0.0, .y = -0.25, .z = 0.0}, .material = {.color = {.x = 1.0, .y = 0.0, .z = 1.0}, .reflectivity = 0.8}, .radius = 0.125},
         {.center = {.x = 0.0, .y = 0.0, .z = -0.25}, .material = {.color = {.x = 1.0, .y = 1.0, .z = 0.0}, .reflectivity = 0.8}, .radius = 0.125},
     };
+    const int NUM_SPHERES = sizeof(spheres) / sizeof(Sphere);
 
     Plane ground = {
         .normal = {.x = 0.0, .y = 1.0, .z = 0.0},
@@ -804,19 +933,44 @@ int main()
         .even_material = {.color = GROUND_EVEN_COLOR, .reflectivity = 0.2},
         .odd_material = {.color = GROUND_ODD_COLOR, .reflectivity = 0.2},
     };
+    //TODO->other objects
+
+    //lights in the scene
+    DirectionalLight directional_lights[] = {{
+        .direction = {.x = 1.0, .y = -1.0, .z = 1.0},
+        .color = {.x = 1.0, .y = 1.0, .z = 1.0},
+    }};
+    const int NUM_DIRECTIONAL_LIGHTS = sizeof(directional_lights) / sizeof(DirectionalLight);
+    PointLight point_lights[] = {
+        {.position = {.x = 0.0, .y = 0.0, .z = 0.0}, .color = {.x = 1.0, .y = 1.0, .z = 1.0}, .intensity = 1.0},
+        // {.position = {.x = 0.0, .y = 0.0, .z = 0.0}, .color = {.x = 1.0, .y = 1.0, .z = 1.0}, .intensity = 1.0},
+        // {.position = {.x = 0.0, .y = 0.0, .z = 0.0}, .color = {.x = 1.0, .y = 1.0, .z = 1.0}, .intensity = 1.0},
+    };
+    const int NUM_POINT_LIGHTS = sizeof(point_lights) / sizeof(PointLight);
 
     //create a camera looking at the sphere from 2 meters away
     //camera position will be set inside the while loop
     Camera camera;
     init_camera(&camera);
 
+    //create a scene with the camera and the spheres
+    Scene scene = {
+        .camera = camera,
+        .spheres = spheres,
+        .num_spheres = NUM_SPHERES,
+        .ground = ground,
+        .directional_lights = directional_lights,
+        .num_directional_lights = NUM_DIRECTIONAL_LIGHTS,
+        .point_lights = point_lights,
+        .num_point_lights = NUM_POINT_LIGHTS,
+        .sky = {.color = SKY_COLOR, .reflectivity = 0.0}};
+
+    //pointer to the camera so we can update it every frame
+    Camera *camera_ptr = &scene.camera;
+
     //create a screen of size SCREEN_WIDTH x SCREEN_HEIGHT with statically allocated pixels
     Vector pixels[SCREEN_HEIGHT * SCREEN_WIDTH];
     Screen screen = {.pixels = (Vector *)pixels, .width = SCREEN_WIDTH, .height = SCREEN_HEIGHT};
-
-    //create a scene with the camera and the spheres
-    Scene scene = {.camera = camera, .spheres = spheres, .num_spheres = NUM_SPHERES, .ground = ground, .sky = {.color = SKY_COLOR, .reflectivity = 0.0}};
-    Camera *camera_ptr = &scene.camera;
 
     //loop forever. set each pixel on the screen to a random color and draw the screen to the terminal
     struct timespec ts; //keep track of the system time for computing the duration of frames
@@ -833,13 +987,13 @@ int main()
         Frame tf0, tf1;
         init_frame(&tf0);
         init_frame(&tf1);
-        init_frame(&(camera_ptr->frame));
+        init_frame(&(scene.camera.frame));
         rotate_basis_x(&tf0.basis, 2.0 * PI * t * -0.005);
         rotate_basis_y(&tf0.basis, 2.0 * PI * t * 0.003);
         Vector root_to_camera = {.x = 0.0, .y = 0.0, .z = 1.99};
         add_vectors((Vector *)&tf1.origin, &root_to_camera);
-        transform_frame(&camera_ptr->frame, &tf1);
-        transform_frame(&camera_ptr->frame, &tf0);
+        transform_frame(&scene.camera.frame, &tf1);
+        transform_frame(&scene.camera.frame, &tf0);
 
         //project the scene onto the screen
         project_scene(&scene, &screen);
@@ -861,393 +1015,3 @@ int main()
         }
     }
 }
-
-// //struct for a light
-// typedef struct
-// {
-//     Point position;
-//     Vector color;
-// } Light;
-
-// //struct for a camera
-// typedef struct
-// {
-
-// } Camera;
-
-// //struct for a material
-// typedef struct
-// {
-//     Vector color;
-//     double ambient;
-//     double diffuse;
-//     double specular;
-//     double shininess;
-// } Material;
-
-// //struct for a scene
-// typedef struct
-// {
-//     Sphere *spheres;
-//     int num_spheres;
-//     Light *lights;
-//     int num_lights;
-//     Material *materials;
-//     int num_materials;
-// } Scene;
-
-//struct for a camera
-// typedef struct
-// {
-//     Point position;
-//     Vector direction;
-//     Vector up;
-//     double fov;
-// } Camera;
-
-// //struct for a pixel
-// typedef struct
-// {
-//     int x;
-//     int y;
-//     Vector color;
-// } Pixel;
-
-// //struct for a screen
-// typedef struct
-// {
-//     Pixel *pixels;
-//     int width;
-//     int height;
-// } Screen;
-
-//struct for a ray intersection
-// typedef struct
-// {
-//     double t;
-//     Vector normal;
-//     Material material;
-// } Intersection;
-
-//function prototypes
-// void init_screen(Screen *screen);
-// void init_scene(Scene *scene);
-// void init_camera(Camera *camera);
-// void init_light(Light *light);
-// void init_material(Material *material);
-// void init_sphere(Sphere *sphere);
-// void init_ray(Ray *ray, Point origin, Vector direction);
-// void init_intersection(Intersection *intersection);
-// void init_point(Point *point, double x, double y, double z);
-// void init_vector(Vector *vector, double x, double y, double z);
-// void init_pixel(Pixel *pixel, int x, int y, Vector color);
-
-// //function to print a pixel to the screen
-// void print_pixel(Pixel *pixel, int color_code)
-// {
-//     printf("\033[%d;%dH", pixel->y, pixel->x);
-//     printf("\033[48;5;%dm", color_code);
-//     printf(" ");
-//     printf("\033[0m");
-// }
-
-// //function to print a screen to the terminal
-// void print_screen(Screen *screen)
-// {
-//     int i, j;
-//     for (i = 0; i < screen->height; i++)
-//     {
-//         for (j = 0; j < screen->width; j++)
-//         {
-//             print_pixel(&screen->pixels[i * screen->width + j], screen->pixels[i * screen->width + j].color.x);
-//         }
-//         printf("\n");
-//     }
-// }
-
-// //function to create a scene
-// void create_scene(Scene *scene)
-// {
-//     //create the scene
-//     init_scene(scene);
-
-//     //create the camera
-//     Camera camera;
-//     init_camera(&camera);
-
-//     //create the light
-//     Light light;
-//     init_light(&light);
-
-//     //create the material
-//     Material material;
-//     init_material(&material);
-
-//     //create the sphere
-//     Sphere sphere;
-//     init_sphere(&sphere);
-
-//     //create the ray
-//     Ray ray;
-//     init_ray(&ray, camera.position, camera.direction);
-
-//     //create the intersection
-//     Intersection intersection;
-//     init_intersection(&intersection);
-
-//     //create the point
-//     Point point;
-//     init_point(&point, 0, 0, 0);
-
-//     //create the vector
-//     Vector vector;
-//     init_vector(&vector, 0, 0, 0);
-
-//     //create the pixel
-//     Pixel pixel;
-//     init_pixel(&pixel, 0, 0, vector);
-
-//     //create the screen
-//     Screen screen;
-//     init_screen(&screen);
-
-//     //create the scene
-//     scene->num_spheres = 1;
-//     scene->spheres = (Sphere *)malloc(sizeof(Sphere) * scene->num_spheres);
-//     scene->spheres[0] = sphere;
-
-//     scene->num_lights = 1;
-//     scene->lights = (Light *)malloc(sizeof(Light) * scene->num_lights);
-//     scene->lights[0] = light;
-
-//     scene->num_materials = 1;
-//     scene->materials = (Material *)malloc(sizeof(Material) * scene->num_materials);
-//     scene->materials[0] = material;
-// }
-
-// //function to create a camera
-// void init_camera(Camera *camera)
-// {
-//     //create the camera
-//     camera->position.x = 0;
-//     camera->position.y = 0;
-//     camera->position.z = 0;
-
-//     camera->direction.x = 0;
-//     camera->direction.y = 0;
-//     camera->direction.z = 1;
-
-//     camera->up.x = 0;
-//     camera->up.y = 1;
-//     camera->up.z = 0;
-
-//     camera->fov = PI / 3;
-// }
-
-// //function to create a light
-// void init_light(Light *light)
-// {
-//     //create the light
-//     light->position.x = 0;
-//     light->position.y = 0;
-//     light->position.z = 0;
-
-//     light->color.x = 1;
-//     light->color.y = 1;
-//     light->color.z = 1;
-// }
-
-// //function to create a material
-// void init_material(Material *material)
-// {
-//     //create the material
-//     material->color.x = 1;
-//     material->color.y = 1;
-//     material->color.z = 1;
-
-//     material->ambient = 0.1;
-//     material->diffuse = 0.9;
-//     material->specular = 0.9;
-//     material->shininess = 200;
-// }
-
-// //function to create a sphere
-// void init_sphere(Sphere *sphere)
-// {
-//     //create the sphere
-//     sphere->center.x = 0;
-//     sphere->center.y = 0;
-//     sphere->center.z = 0;
-
-//     sphere->radius = 1;
-
-//     sphere->color.x = 1;
-//     sphere->color.y = 1;
-//     sphere->color.z = 1;
-// }
-
-// //function to create a ray
-// void init_ray(Ray *ray, Point origin, Vector direction)
-// {
-//     //create the ray
-//     ray->origin = origin;
-//     ray->direction = direction;
-// }
-
-// //function to create an intersection
-// void init_intersection(Intersection *intersection)
-// {
-//     //create the intersection
-//     intersection->t = 0;
-//     intersection->normal.x = 0;
-//     intersection->normal.y = 0;
-//     intersection->normal.z = 0;
-//     intersection->material.color.x = 0;
-//     intersection->material.color.y = 0;
-//     intersection->material.color.z = 0;
-//     intersection->material.ambient = 0;
-//     intersection->material.diffuse = 0;
-//     intersection->material.specular = 0;
-//     intersection->material.shininess = 0;
-// }
-
-// //function to create a point
-// void init_point(Point *point, double x, double y, double z)
-// {
-//     //create the point
-//     point->x = x;
-//     point->y = y;
-//     point->z = z;
-// }
-
-// //function to create a vector
-// void init_vector(Vector *vector, double x, double y, double z)
-// {
-//     //create the vector
-//     vector->x = x;
-//     vector->y = y;
-//     vector->z = z;
-// }
-
-// //function to create a pixel
-// void init_pixel(Pixel *pixel, int x, int y, Vector color)
-// {
-//     //create the pixel
-//     pixel->x = x;
-//     pixel->y = y;
-//     pixel->color = color;
-// }
-
-// //function to create a screen
-// void init_screen(Screen *screen)
-// {
-//     //create the screen
-//     screen->width = 80;
-//     screen->height = 25;
-//     screen->pixels = (Pixel *)malloc(sizeof(Pixel) * screen->width * screen->height);
-// }
-
-// //function to create a scene
-// void init_scene(Scene *scene)
-// {
-//     //create the scene
-//     scene->num_spheres = 0;
-//     scene->spheres = NULL;
-
-//     scene->num_lights = 0;
-//     scene->lights = NULL;
-
-//     scene->num_materials = 0;
-//     scene->materials = NULL;
-// }
-
-// //function to create a ray
-// void create_ray(Ray *ray, Point origin, Vector direction)
-// {
-//     //create the ray
-//     ray->origin = origin;
-//     ray->direction = direction;
-// }
-
-// //function to create a sphere
-// void create_sphere(Sphere *sphere, Point center, double radius, Vector color)
-// {
-//     //create the sphere
-//     sphere->center = center;
-//     sphere->radius = radius;
-//     sphere->color = color;
-// }
-
-// //function to create a material
-// void create_material(Material *material, Vector color, double ambient, double diffuse, double specular, double shininess)
-// {
-//     //create the material
-//     material->color = color;
-//     material->ambient = ambient;
-//     material->diffuse = diffuse;
-//     material->specular = specular;
-//     material->shininess = shininess;
-// }
-
-// //function to create a light
-// void create_light(Light *light, Point position, Vector color)
-// {
-//     //create the light
-//     light->position = position;
-//     light->color = color;
-// }
-
-// //function to create an intersection
-// void create_intersection(Intersection *intersection, double t, Vector normal, Material material)
-// {
-//     //create the intersection
-//     intersection->t = t;
-//     intersection->normal = normal;
-//     intersection->material = material;
-// }
-
-// //function to create a point
-// void create_point(Point *point, double x, double y, double z)
-// {
-//     //create the point
-//     point->x = x;
-//     point->y = y;
-//     point->z = z;
-// }
-
-// //function to create a vector
-// void create_vector(Vector *vector, double x, double y, double z)
-// {
-//     //create the vector
-//     vector->x = x;
-//     vector->y = y;
-//     vector->z = z;
-// }
-
-// //function to create a pixel
-// void create_pixel(Pixel *pixel, int x, int y, Vector color)
-// {
-//     //create the pixel
-//     pixel->x = x;
-//     pixel->y = y;
-//     pixel->color = color;
-// }
-
-// //function to create a screen
-// void create_screen(Screen *screen)
-// {
-//     //create the screen
-//     screen->width = 80;
-//     screen->height = 25;
-//     screen->pixels = (Pixel *)malloc(sizeof(Pixel) * screen->width * screen->height);
-// }
-
-// //function to run the ray tracer
-// void run_ray_tracer(Scene *scene, Camera *camera, Light *light, Screen *screen)
-// {
-//     //draw the scene to the terminal
-//     draw_scene(scene, camera, light, screen);
-
-//     //update the camera position by rotating the camera around the scene
-//     update_camera(scene, camera);
-// }
