@@ -303,6 +303,7 @@ void read_ppm(char *filename, Color **colors_ptr, int *width, int *height)
     if (strncmp(magic_number, "P6", 2) != 0)
     {
         printf("Error: file is not ppm\n");
+        fclose(fp);
         exit(1);
     }
     fgetc(fp); //skip space/newline after the magic number
@@ -326,6 +327,7 @@ void read_ppm(char *filename, Color **colors_ptr, int *width, int *height)
     if (max_color_value != 255)
     {
         printf("Error: max color value is not 255\n");
+        fclose(fp);
         exit(1);
     }
 
@@ -337,6 +339,7 @@ void read_ppm(char *filename, Color **colors_ptr, int *width, int *height)
     if (colors == NULL)
     {
         printf("Error allocating memory for colors\n");
+        fclose(fp);
         exit(1);
     }
 
@@ -347,6 +350,9 @@ void read_ppm(char *filename, Color **colors_ptr, int *width, int *height)
         colors[i].g = fgetc(fp);
         colors[i].b = fgetc(fp);
     }
+
+    //close the file
+    fclose(fp);
 }
 
 //function for loading the skybox into a Skybox struct
@@ -391,6 +397,9 @@ void load_skybox(Skybox *skybox, char *skybox_name)
     }
 
     skybox->dim = dim;
+
+    //free the path buffer
+    free(path);
 }
 
 //function for freeing the memory allocated for a skybox
@@ -1076,20 +1085,20 @@ void print_ppm(Color *colors, int width, int height)
 // }
 
 //callback function to clean up the global skybox on ctrl-c
-void cleanup_skybox()
-{
-    //free the memory allocated for the skybox
-    free_skybox(&global_skybox);
-}
+// void cleanup_skybox()
+// {
+//     //free the memory allocated for the skybox
+//     free_skybox(&global_skybox);
+// }
 
-//function to call all cleanup functions
+volatile sig_atomic_t sigint_received = 0; /* volatile might be necessary depending on 
+                                              the system/implementation in use. 
+                                              (see "C11 draft standard n1570: 5.1.2.3")*/
+
+//function to mark sigint as received so the program can cleanup
 void sigint_handler(int sig)
 {
-    //clean up the global skybox
-    cleanup_skybox();
-
-    //exit the program
-    exit(0);
+    sigint_received = 1;
 }
 
 //test/create a simple scene with a single sphere in the middle and the camera looking directly at it
@@ -1104,7 +1113,7 @@ int main()
     //load in the skybox to the global skybox. using milky_way cube map for now
     load_skybox(&global_skybox, "milky_way");
 
-    //set the skybox cleanup function to be called on ctrl-c
+    // //set the skybox cleanup function to be called on ctrl-c
     signal(SIGINT, sigint_handler);
 
     //get the time that the program starts
@@ -1171,7 +1180,7 @@ int main()
 
     //loop forever. set each pixel on the screen to a random color and draw the screen to the terminal
     struct timespec ts; //keep track of the system time for computing the duration of frames
-    while (1)
+    while (!sigint_received)
     {
         //get the current system time, get the number of nanoseconds elapsed since the start of the program
         timespec_get(&ts, TIME_UTC);
@@ -1221,4 +1230,7 @@ int main()
         printf("%.02f fps\n", 1.0 / ((double)frame_duration_nanos / 1000000000.0));
         fputs("\033[0;0H", stdout);
     }
+
+    //cleanup after sigint received
+    free_skybox(&global_skybox);
 }
