@@ -33,6 +33,7 @@
 
 //math constants
 #define PI 3.14159265358979323846
+#define EPSILON 0.000001
 
 //constants for the screen
 #define SCREEN_WIDTH 180
@@ -329,6 +330,40 @@ Vector subtract_vectors_copy(Vector *vector1, Vector *vector2)
     return result;
 }
 
+//function to multiply elements of two vectors point-wise
+void multiply_vectors(Vector *vector1, Vector *vector2)
+{
+    vector1->x *= vector2->x;
+    vector1->y *= vector2->y;
+    vector1->z *= vector2->z;
+}
+
+//function to clamp a number within the given range
+double clamp(double value, double min, double max)
+{
+    if (value < min)
+        return min;
+    if (value > max)
+        return max;
+    return value;
+}
+
+//function to clamp parameters of a vector to the given range
+void clamp_vector(Vector *vector, double min, double max)
+{
+    vector->x = clamp(vector->x, min, max);
+    vector->y = clamp(vector->y, min, max);
+    vector->z = clamp(vector->z, min, max);
+}
+
+//function to multiply elements of two vectors point-wise without modifying either
+Vector multiply_vectors_copy(Vector *vector1, Vector *vector2)
+{
+    Vector result = *vector1;
+    multiply_vectors(&result, vector2);
+    return result;
+}
+
 //function to rotate a basis by another basis (rotation matrix) and ensure orthonomal
 void rotate_basis(Basis *basis, Basis *rotation)
 {
@@ -535,12 +570,20 @@ ObjectType trace_ray(Scene *scene, Ray *ray, Point *intersection, Vector *normal
 
     //TODO->check other object types
 
-    //if no object was intersected, set the
+    //if no object was intersected, set the return values to defaults, and the sky color
     if (closest_object == NONE)
     {
         closest_intersection = ray->origin;
         closest_normal = ray->direction;
         closest_material = scene->sky;
+    }
+    else
+    {
+        //push the intersection point back a little bit to avoid self-intersection
+        Vector to_surface = subtract_vectors_copy((Vector *)&ray->origin, (Vector *)&closest_intersection);
+        normalize_vector(&to_surface);
+        scale_vector(&to_surface, EPSILON);
+        add_vectors((Vector *)&closest_intersection, &to_surface);
     }
 
     //ensure the normal is normalized
@@ -561,113 +604,47 @@ ObjectType trace_ray(Scene *scene, Ray *ray, Point *intersection, Vector *normal
 //specular highlights are computed using the Blinn-Phong model
 void apply_lighting(Scene *scene, Point *intersection, Vector *view, Vector *normal, Vector *color)
 {
+    //vector to accumulate the color of point based on the lighting
+    Vector output_color = {0.0, 0.0, 0.0};
+
     //compute the contribution of the directional lights
     for (int i = 0; i < scene->num_directional_lights; i++)
     {
         //create a ray for this light source to see if it is blocked by any objects in the scene
         Vector light_direction = scale_vector_copy(&(scene->directional_lights[i].direction), -1.0);
+        normalize_vector(&light_direction);
         Ray to_light = {
             .origin = *intersection,
             .direction = light_direction,
         };
 
         //check if the light is blocked by any objects in the scene
-        Point light_intersection;
-        ObjectType light_object = trace_ray(scene, &to_light, &light_intersection, NULL, NULL);
+        ObjectType blocking_object = trace_ray(scene, &to_light, NULL, NULL, NULL);
+        if (blocking_object == NONE)
+        {
+            //compute the diffuse and specular contributions
+            Vector diffuse_contribution = scale_vector_copy(&scene->directional_lights[i].color, fmax(fmin(dot_product(normal, &light_direction), 0.0), 1.0));
+            // double diffuse_strength = dot_product(normal, &light_direction);
+            // Vector specular_contribution = scale_vector_copy(&light_direction,
+            //                                                  pow(dot_product(view, &light_direction),
+            //                                                      scene->spheres[0].material.specular_exponent));
 
-        // //compute the direction of the light
-        // Vector light_direction;
-        // set_vector(&light_direction,
-        //            scene->directional_lights[i].direction.x,
-        //            scene->directional_lights[i].direction.y,
-        //            scene->directional_lights[i].direction.z);
-        // normalize_vector(&light_direction);
-
-        // //compute the diffuse component
-        // double diffuse_contribution = dot_product(normal, &light_direction);
-        // if (diffuse_contribution > 0.0)
-        // {
-        //     //compute the color of the light
-        //     Vector light_color;
-        //     set_vector(&light_color,
-        //                scene->directional_lights[i].color.r,
-        //                scene->directional_lights[i].color.g,
-        //                scene->directional_lights[i].color.b);
-
-        //     //compute the color of the light after being attenuated
-        //     Vector attenuated_light_color;
-        //     scale_vector(&light_color, scene->directional_lights[i].attenuation);
-
-        //     //compute the color of the light after being reflected
-        //     Vector reflected_light_color;
-        //     Vector reflected_light_direction;
-        //     set_vector(&reflected_light_direction,
-        //                light_direction.x - 2.0 * dot_product(normal, &light_direction) * normal->x,
-        //                light_direction.y - 2.0 * dot_product(normal, &light_direction) * normal->y,
-        //                light_direction.z - 2.0 * dot_product(normal, &light_direction) * normal->z);
-        //     normalize_vector(&reflected_light_direction);
-        //     double specular_contribution = dot_product(view, &reflected_light_direction);
-
-        // //compute ambient lighting
-        // double ambient_red = scene->ambient.red * color->red;
-        // double ambient_green = scene->ambient.green * color->green;
-        // double ambient_blue = scene->ambient.blue * color->blue;
-
-        // //compute diffuse lighting
-        // double diffuse_red = 0.0;
-        // double diffuse_green = 0.0;
-        // double diffuse_blue = 0.0;
-        // for (int i = 0; i < scene->num_lights; i++)
-        // {
-        //     Vector light_vector;
-        //     set_vector(&light_vector,
-        //                scene->lights[i].position.x - intersection->x,
-        //                scene->lights[i].position.y - intersection->y,
-        //                scene->lights[i].position.z - intersection->z);
-        //     normalize_vector(&light_vector);
-
-        //     double dot_product = dot_product(&light_vector, normal);
-        //     if (dot_product > 0.0)
-        //     {
-        //         diffuse_red += scene->lights[i].color.red * color->red * dot_product;
-        //         diffuse_green += scene->lights[i].color.green * color->green * dot_product;
-        //         diffuse_blue += scene->lights[i].color.blue * color->blue * dot_product;
-        //     }
-        // }
-
-        // //compute specular lighting
-        // double specular_red = 0.0;
-        // double specular_green = 0.0;
-        // double specular_blue = 0.0;
-        // for (int i = 0; i < scene->num_lights; i++)
-        // {
-        //     Vector light_vector;
-        //     set_vector(&light_vector,
-        //                scene->lights[i].position.x - intersection->x,
-        //                scene->lights[i].position.y - intersection->y,
-        //                scene->lights[i].position.z - intersection->z);
-        //     normalize_vector(&light_vector);
-
-        //     Vector reflection_vector;
-        //     set_vector(&reflection_vector,
-        //                2.0 * dot_product(normal, &light_vector) * *normal - light_vector);
-        //     normalize_vector(&reflection_vector);
-
-        //     Vector view_vector;
-        //     set_vector(&view_vector,
-        //                -intersection->x,
-        //                -intersection->y,
-        //                -intersection->z);
-        //     normalize_vector(&view_vector);
-        //     double dot_product = dot_product(&reflection_vector, &view_vector);
-        //     if (dot_product > 0.0)
-        //     {
-        //         specular_red += scene->lights[i].color.red * color->red * pow(dot_product, scene->material.shininess);
-        //         specular_green += scene->lights[i].color.green * color->green * pow(dot_product, scene->material.shininess);
-        //         specular_blue += scene->lights[i].color.blue * color->blue * pow(dot_product, scene->material.shininess);
-        //     }
-        // }
+            //add the contributions to the color
+            multiply_vectors(&diffuse_contribution, color);
+            add_vectors(&output_color, &diffuse_contribution);
+        }
     }
+
+    //compute the contribution of the point lights
+    //TODO
+
+    //clamp the color so that it is not greater than 1.0
+    // clamp_vector(color, 1.0);
+    output_color.x = fmin(output_color.x, 1.0);
+    output_color.y = fmin(output_color.y, 1.0);
+    output_color.z = fmin(output_color.z, 1.0);
+
+    *color = output_color;
 }
 
 //function to project the scene onto a screen
@@ -759,10 +736,6 @@ void project_scene(Scene *scene, Screen *screen)
                     reflect_vector(&ray.direction, &normal);
                     normalize_vector(&ray.direction);
                     copy_point(&ray.origin, &intersection);
-
-                    //push the starting point of the ray outside the surface of the reflected object
-                    Vector offset = scale_vector_copy(&ray.direction, 0.001);
-                    add_vectors((Vector *)&ray.origin, &offset);
                 }
 
                 //set the color of this pixel in the screen
