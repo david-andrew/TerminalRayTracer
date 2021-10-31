@@ -110,6 +110,26 @@ typedef struct
     double specularity;
 } Material;
 
+//struct for representing colors as a triple of bytes
+typedef struct
+{
+    unsigned char r;
+    unsigned char g;
+    unsigned char b;
+} Color;
+
+//struct for representing a cubemap skybox. each face is a ppm texture mapped to a 1D list of colors
+typedef struct
+{
+    Color *pX;
+    Color *nX;
+    Color *pY;
+    Color *nY;
+    Color *pZ;
+    Color *nZ;
+    int dim;
+} Skybox;
+
 //struct for a directional light
 typedef struct
 {
@@ -261,6 +281,149 @@ void init_camera(Camera *camera)
     camera->screen_distance = 1.0;
     camera->screen_width = (double)SCREEN_WIDTH / (double)SCREEN_HEIGHT;
     camera->screen_height = 1.0;
+}
+
+//function to open a ppm file and read the data into a 1D array of colors
+//takes in a Color** which is allocated with the 1D array of colors that, so the caller must free it
+void read_ppm(char *filename, Color **colors_ptr, int *width, int *height)
+{
+    FILE *fp;
+
+    //result return values for making fscanf and fgets not issue warnings because we ignore their returns
+    char *res1;
+    int res2;
+
+    fp = fopen(filename, "r");
+    if (fp == NULL)
+    {
+        printf("Error opening file %s\n", filename);
+        exit(1);
+    }
+
+    //read the header
+    char magic_number[3];
+    res1 = fgets(magic_number, 3, fp);
+    if (strncmp(magic_number, "P6", 2) != 0)
+    {
+        printf("Error: file is not ppm\n");
+        exit(1);
+    }
+    fgetc(fp); //skip space/newline after the magic number
+
+    //skip comments. comments start with a #, and end with a newline
+    while (fgetc(fp) == '#')
+        while (fgetc(fp) != '\n')
+            ;
+    fseek(fp, -1, SEEK_CUR); //back up file pointer by a single character
+
+    //read the width and height of the image
+    res2 = fscanf(fp, "%d %d", width, height);
+    fgetc(fp); //skip space/newline after the width and height
+
+    //read the maximum color value
+    int max_color_value;
+    res2 = fscanf(fp, "%d", &max_color_value);
+    fgetc(fp); //skip space/newline after the max color value
+
+    //assert that the max color value is 255, as we only support 8-bit colors
+    if (max_color_value != 255)
+    {
+        printf("Error: max color value is not 255\n");
+        exit(1);
+    }
+
+    //allocate memory for the colors
+    *colors_ptr = (Color *)malloc(sizeof(Color) * (*width) * (*height));
+    Color *colors = *colors_ptr;
+
+    //return an error if the allocation failed
+    if (colors == NULL)
+    {
+        printf("Error allocating memory for colors\n");
+        exit(1);
+    }
+
+    //read the colors. each color is represented by 3 bytes, r, g, and b
+    for (int i = 0; i < (*width) * (*height); i++)
+    {
+        colors[i].r = fgetc(fp);
+        colors[i].g = fgetc(fp);
+        colors[i].b = fgetc(fp);
+    }
+}
+
+//function for loading the skybox into a Skybox struct
+//skybox is selected with the name of the folder with the ppm textures in the skybox folder
+//the skybox folder should contain the following files:
+//  -X.ppm +X.ppm -Y.ppm +Y.ppm -Z.ppm +Z.ppm
+//where X, Y, and Z are the names of the faces of the skybox
+//the ppm files should be of the same size and should have matching widths and heights
+void load_skybox(Skybox *skybox, char *skybox_name)
+{
+    char *file_names[] = {"-X.ppm", "+X.ppm", "-Y.ppm", "+Y.ppm", "-Z.ppm", "+Z.ppm"};
+
+    // char ppm_file_name[100];
+    // int ppm_width, ppm_height;
+    // int ppm_size;
+    // int ppm_index;
+    // int ppm_row, ppm_column;
+    // int ppm_color_index;
+    // Color ppm_color;
+    // FILE *ppm_file;
+
+    // //load the skybox
+    // sprintf(ppm_file_name, "skybox/%s/X.ppm", skybox_name);
+    // ppm_file = fopen(ppm_file_name, "rb");
+    // fscanf(ppm_file, "P6\n%d %d\n255\n", &ppm_width, &ppm_height);
+    // ppm_size = ppm_width * ppm_height;
+    // skybox->pX = (Color *)malloc(sizeof(Color) * ppm_size);
+    // for (ppm_row = 0; ppm_row < ppm_height; ppm_row++)
+    // {
+    //     for (ppm_column = 0; ppm_column < ppm_width; ppm_column++)
+    //     {
+    //         ppm_color_index = ppm_row * ppm_width + ppm_column;
+    //         ppm_color.r = fgetc(ppm_file);
+    //         ppm_color.g = fgetc(ppm_file);
+    //         ppm_color.b = fgetc(ppm_file);
+    //         skybox->pX[ppm_color_index] = ppm_color;
+    //     }
+    // }
+    // fclose(ppm_file);
+
+    // sprintf(ppm_file_name, "skybox/%s/-X.ppm", skybox_name);
+    // ppm_file = fopen(ppm_file_name, "rb");
+    // fscanf(ppm_file, "P6\n%d %d\n255\n", &ppm_width, &ppm_height);
+    // ppm_size = ppm_width * ppm_height;
+    // skybox->mX = (Color *)malloc(sizeof(Color) * ppm_size);
+    // for (ppm_row = 0; ppm_row < ppm_height; ppm_row++)
+    // {
+    //     for (ppm_column = 0; ppm_column < ppm_width; ppm_column++)
+    //     {
+    //         ppm_color_index = ppm_row * ppm_width + ppm_column;
+    //         ppm_color.r = fgetc(ppm_file);
+    //         ppm_color.g = fgetc(ppm_file);
+    //         ppm_color.b = fgetc(ppm_file);
+    //         skybox->mX[ppm_color_index] = ppm_color;
+    //     }
+    // }
+    // fclose(ppm_file);
+
+    // sprintf(ppm_file_name, "skybox/%s/+X.ppm", skybox_name);
+    // ppm_file = fopen(ppm_file_name, "rb");
+    // fscanf(ppm_file, "P6\n%d %d\n255\n", &ppm_width, &ppm_height);
+    // ppm_size = ppm_width * ppm_height;
+    // skybox->pX = (Color *)malloc(sizeof(Color) * ppm_size);
+    // for (ppm_row = 0; ppm_row < ppm_height; ppm_row++)
+    // {
+    //     for (ppm_column = 0; ppm_column < ppm_width; ppm_column++)
+    //     {
+    //         ppm_color_index = ppm_row * ppm_width + ppm_column;
+    //         ppm_color.r = fgetc(ppm_file);
+    //         ppm_color.g = fgetc(ppm_file);
+    //         ppm_color.b = fgetc(ppm_file);
+    //         skybox->pX[ppm_color_index] = ppm_color;
+    //     }
+    // }
 }
 
 //function to normalize a vector
@@ -891,6 +1054,28 @@ void buffered_draw_screen(Screen *screen)
 
     //print the screenbuffer to the terminal as efficiently as possible
     fwrite(screenbuffer, sizeof(char), sizeof(screenbuffer), stdout);
+}
+
+//function to print a ppm file to the terminal as an image for testing
+void print_ppm(Color *colors, int width, int height)
+{
+    //convert the colors to a Screen object
+    Screen screen;
+    screen.width = width;
+    screen.height = height;
+    screen.pixels = (Vector *)malloc(sizeof(Vector) * width * height);
+    for (int i = 0; i < width * height; i++)
+    {
+        screen.pixels[i].x = colors[i].r / 255.0;
+        screen.pixels[i].y = colors[i].g / 255.0;
+        screen.pixels[i].z = colors[i].b / 255.0;
+    }
+
+    //print the image to the terminal
+    draw_screen(&screen);
+
+    //free the memory allocated for the pixels
+    free(screen.pixels);
 }
 
 //function to capture user input arrow keys for camera movement using getch()
