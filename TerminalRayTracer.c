@@ -37,8 +37,8 @@
 #define EPSILON 0.000001
 
 //constants for the screen
-#define SCREEN_WIDTH 480
-#define SCREEN_HEIGHT 280
+#define SCREEN_WIDTH 80
+#define SCREEN_HEIGHT 80
 
 #define FRAME_RATE 60                                              //frames per second
 #define FRAME_DURATION 1.0 / FRAME_RATE                            //time between frames
