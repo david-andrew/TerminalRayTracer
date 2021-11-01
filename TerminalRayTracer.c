@@ -37,8 +37,8 @@
 #define EPSILON 0.000001
 
 //constants for the screen
-#define SCREEN_WIDTH 80
-#define SCREEN_HEIGHT 80
+#define SCREEN_WIDTH 480
+#define SCREEN_HEIGHT 280
 
 #define FRAME_RATE 60                                              //frames per second
 #define FRAME_DURATION 1.0 / FRAME_RATE                            //time between frames
@@ -220,6 +220,15 @@ double triangle_wave(double t)
     return (fmod(t, 2 * PI) < PI) ? (fmod(t, 2 * PI) / PI) : (2 - (fmod(t, 2 * PI) / PI));
 }
 
+//function to count the number of bits set in an integer
+int count_bits(int n)
+{
+    int count = 0;
+    for (count = 0; n != 0; count++)
+        n &= n - 1;
+    return count;
+}
+
 //function to initialize a sphere passed in with random values
 void init_random_sphere(Sphere *sphere)
 {
@@ -264,29 +273,11 @@ void copy_point(Point *dest, Point *src)
     dest->z = src->z;
 }
 
-// //function to set a ray with the given values
-// void set_ray(Ray *ray, Point origin, Vector direction)
-// {
-//     ray->origin = origin;
-//     ray->direction = direction;
-// }
-
 //function to print the string representation of a vector
 void print_vector(Vector *vector)
 {
     printf("[%f, %f, %f]", vector->x, vector->y, vector->z);
 }
-
-// //test function to print out each of the vectors in CUBEMAP_AXES
-// void print_cubemap_axes()
-// {
-//     for (int i = 0; i < 6; i++)
-//     {
-//         printf("%d: ", i);
-//         print_vector(&CUBEMAP_AXES[i]);
-//         printf("\n");
-//     }
-// }
 
 //function to initialize a frame with default orientation and origin
 void init_frame(Frame *frame)
@@ -714,8 +705,6 @@ void get_skybox_color(Scene *scene, Vector *direction, Color *color)
         }
     }
 
-    //for testing, return a color based on which face was hit
-
     //project the ray direction onto the axis for this direction
     //create a vector that would be touching the surface of the cube map
     Vector touching_cube_map = multiply_vectors_copy(&dir, &CUBEMAP_AXES[best_face]);
@@ -729,6 +718,48 @@ void get_skybox_color(Scene *scene, Vector *direction, Color *color)
     //extract the 2D orthogonal coordinates representing the location on the selected cubemap face
     double u = dot_product(&orthogonal_component, &CUBEMAP_AXES[(best_face + 2) % 6]);
     double v = dot_product(&orthogonal_component, &CUBEMAP_AXES[(best_face + 4) % 6]);
+
+    //handle rotating the cubemap faces correctly. this convention is based on the milkyway skybox
+    if (best_face % 2 == 1)
+    {
+        // mirror across the x axis
+        u *= -1.0;
+    }
+    if (best_face == 0 || best_face == 1)
+    {
+        //rotate by -90 degrees
+        double temp = u;
+        u = v;
+        v = -temp;
+    }
+    else if (best_face == 2)
+    {
+        //rotate by +90 degrees
+        double temp = u;
+        u = -v;
+        v = temp;
+    }
+    else if (best_face == 3)
+    {
+        //rotate by 90 degrees
+        double temp = u;
+        u = -v;
+        v = temp;
+    }
+    else if (best_face == 4)
+    {
+        //rotate by 180 degrees
+        u *= -1.0;
+        v *= -1.0;
+    }
+
+    // if (count_bits(best_face) % 2 == 1)
+    // {
+    //     //swap u and v
+    //     double temp = u;
+    //     u = v;
+    //     v = temp;
+    // }
 
     // //testing
     // Vector to_return = {u, v, 0.0}; //orthogonal_component; //CUBEMAP_AXES[best_face];
@@ -789,30 +820,30 @@ ObjectType trace_ray(Scene *scene, Ray *ray, Point *intersection, Vector *normal
         }
     }
 
-    // //check the ground if it is the closest intersection
-    // if (ray_intersects_plane(ray, &(scene->ground), &point))
-    // {
-    //     //efficiently compute distance from ray origin to intersection point
-    //     Vector ray_origin_plane_vector;
-    //     set_vector(&ray_origin_plane_vector,
-    //                ray->origin.x - point.x,
-    //                ray->origin.y - point.y,
-    //                ray->origin.z - point.z);
-    //     double square_distance = dot_product(&ray_origin_plane_vector, &ray_origin_plane_vector);
-    //     if (square_distance < closest_distance)
-    //     {
-    //         closest_object = GROUND;
-    //         closest_distance = square_distance;
+    //check the ground if it is the closest intersection
+    if (ray_intersects_plane(ray, &(scene->ground), &point))
+    {
+        //efficiently compute distance from ray origin to intersection point
+        Vector ray_origin_plane_vector;
+        set_vector(&ray_origin_plane_vector,
+                   ray->origin.x - point.x,
+                   ray->origin.y - point.y,
+                   ray->origin.z - point.z);
+        double square_distance = dot_product(&ray_origin_plane_vector, &ray_origin_plane_vector);
+        if (square_distance < closest_distance)
+        {
+            closest_object = GROUND;
+            closest_distance = square_distance;
 
-    //         //assign the output values if they aren't null
-    //         closest_intersection = point;
-    //         closest_normal = scene->ground.normal;
+            //assign the output values if they aren't null
+            closest_intersection = point;
+            closest_normal = scene->ground.normal;
 
-    //         //ground material is a checker pattern based on if the intersection point's coordinates are even/odd
-    //         int odd = (int)(floor(point.x) + floor(point.z)) & 1;
-    //         closest_material = odd ? scene->ground.odd_material : scene->ground.even_material;
-    //     }
-    // }
+            //ground material is a checker pattern based on if the intersection point's coordinates are even/odd
+            int odd = (int)(floor(point.x) + floor(point.z)) & 1;
+            closest_material = odd ? scene->ground.odd_material : scene->ground.even_material;
+        }
+    }
 
     //TODO->check other object types
 
@@ -1203,7 +1234,7 @@ int main()
     initialize_screenbuffer();
 
     //load in the skybox to the global skybox. //available maps are milky_way, colors, and uv_checker
-    load_skybox(&global_skybox, "uv_checker");
+    load_skybox(&global_skybox, "milky_way");
 
     // //set the skybox cleanup function to be called on ctrl-c
     signal(SIGINT, sigint_handler);
@@ -1216,13 +1247,16 @@ int main()
     // #define NUM_SPHERES 6
     //objects in the scene
     Sphere spheres[] = {
-        {.center = {.x = 0.25, .y = 0.0, .z = 0.0}, .material = {.color = {.x = 1.0, .y = 0.0, .z = 0.0}, .reflectivity = 1.0, .specularity = 100.0}, .radius = 0.125},
-        {.center = {.x = 0.0, .y = 0.25, .z = 0.0}, .material = {.color = {.x = 0.0, .y = 1.0, .z = 0.0}, .reflectivity = 0.8, .specularity = 100.0}, .radius = 0.125},
-        {.center = {.x = 0.0, .y = 0.0, .z = 0.25}, .material = {.color = {.x = 0.0, .y = 0.0, .z = 1.0}, .reflectivity = 0.8, .specularity = 100.0}, .radius = 0.125},
-        {.center = {.x = -0.25, .y = 0.0, .z = 0.0}, .material = {.color = {.x = 0.0, .y = 1.0, .z = 1.0}, .reflectivity = 0.8, .specularity = 100.0}, .radius = 0.125},
-        {.center = {.x = 0.0, .y = -0.25, .z = 0.0}, .material = {.color = {.x = 1.0, .y = 0.0, .z = 1.0}, .reflectivity = 0.8, .specularity = 100.0}, .radius = 0.125},
-        {.center = {.x = 0.0, .y = 0.0, .z = -0.25}, .material = {.color = {.x = 1.0, .y = 1.0, .z = 0.0}, .reflectivity = 0.8, .specularity = 100.0}, .radius = 0.125},
+        {.center = {.x = 1.0, .y = 0.0, .z = 0.0}, .material = {.color = {.x = 1.0, .y = 0.0, .z = 0.0}, .reflectivity = 1.0, .specularity = 100.0}, .radius = 0.5},
+        {.center = {.x = 0.0, .y = 1.0, .z = 0.0}, .material = {.color = {.x = 0.0, .y = 1.0, .z = 0.0}, .reflectivity = 0.8, .specularity = 100.0}, .radius = 0.5},
+        {.center = {.x = 0.0, .y = 0.0, .z = 1.0}, .material = {.color = {.x = 0.0, .y = 0.0, .z = 1.0}, .reflectivity = 0.8, .specularity = 100.0}, .radius = 0.5},
+        {.center = {.x = -1.0, .y = 0.0, .z = 0.0}, .material = {.color = {.x = 0.0, .y = 1.0, .z = 1.0}, .reflectivity = 0.8, .specularity = 100.0}, .radius = 0.5},
+        {.center = {.x = 0.0, .y = -1.0, .z = 0.0}, .material = {.color = {.x = 1.0, .y = 0.0, .z = 1.0}, .reflectivity = 0.8, .specularity = 100.0}, .radius = 0.5},
+        {.center = {.x = 0.0, .y = 0.0, .z = -1.0}, .material = {.color = {.x = 1.0, .y = 1.0, .z = 0.0}, .reflectivity = 0.8, .specularity = 100.0}, .radius = 0.5},
     };
+    // Sphere spheres[] = {
+    // {.center = {.x = 0.0, .y = 0.0, .z = 0.0}, .material = {.color = {.x = 0.0, .y = 0.0, .z = 0.0}, .reflectivity = 1.0, .specularity = 100.0}, .radius = 1.0},
+    // };
     const int NUM_SPHERES = sizeof(spheres) / sizeof(Sphere);
 
     Plane ground = {
@@ -1287,8 +1321,8 @@ int main()
         init_frame(&tf0);
         init_frame(&tf1);
         init_frame(&(scene.camera.frame));
-        rotate_basis_x(&tf0.basis, 2.0 * PI * t * -0.05);
-        rotate_basis_y(&tf0.basis, 2.0 * PI * t * 0.03);
+        rotate_basis_x(&tf0.basis, 2.0 * PI * t * -0.03);
+        rotate_basis_y(&tf0.basis, 2.0 * PI * t * 0.05);
         Vector root_to_camera = {.x = 0.0, .y = 0.0, .z = 1.99};
         add_vectors((Vector *)&tf1.origin, &root_to_camera);
         transform_frame(&scene.camera.frame, &tf1);
