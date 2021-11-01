@@ -127,6 +127,14 @@ typedef struct
 } Skybox;
 Skybox global_skybox = {.colors = {NULL, NULL, NULL, NULL, NULL, NULL}, .dim = -1}; //global skybox so that the cleanup handler can access it
 
+Vector CUBEMAP_AXES[] = { //coordinate axes of the cube map, following the same order as the faces of the skybox
+    (Vector){.x = 1.0, .y = 0.0, .z = 0.0},
+    (Vector){.x = -1.0, .y = 0.0, .z = 0.0},
+    (Vector){.x = 0.0, .y = 1.0, .z = 0.0},
+    (Vector){.x = 0.0, .y = -1.0, .z = 0.0},
+    (Vector){.x = 0.0, .y = 0.0, .z = 1.0},
+    (Vector){.x = 0.0, .y = 0.0, .z = -1.0}};
+
 //struct for a directional light
 typedef struct
 {
@@ -188,7 +196,8 @@ typedef struct
     PointLight *point_lights;
     int num_point_lights;
     Camera camera;
-    Material sky; //TODO->consider converting this to a texture map
+    Skybox skybox;
+    // Material sky; //TODO->consider converting this to a texture map
 } Scene;
 
 //function to generate a random number between 0 and 1
@@ -255,12 +264,29 @@ void copy_point(Point *dest, Point *src)
     dest->z = src->z;
 }
 
-//function to set a ray with the given values
-void set_ray(Ray *ray, Point origin, Vector direction)
+// //function to set a ray with the given values
+// void set_ray(Ray *ray, Point origin, Vector direction)
+// {
+//     ray->origin = origin;
+//     ray->direction = direction;
+// }
+
+//function to print the string representation of a vector
+void print_vector(Vector *vector)
 {
-    ray->origin = origin;
-    ray->direction = direction;
+    printf("[%f, %f, %f]", vector->x, vector->y, vector->z);
 }
+
+// //test function to print out each of the vectors in CUBEMAP_AXES
+// void print_cubemap_axes()
+// {
+//     for (int i = 0; i < 6; i++)
+//     {
+//         printf("%d: ", i);
+//         print_vector(&CUBEMAP_AXES[i]);
+//         printf("\n");
+//     }
+// }
 
 //function to initialize a frame with default orientation and origin
 void init_frame(Frame *frame)
@@ -276,8 +302,8 @@ void init_camera(Camera *camera)
 {
     init_frame(&(camera->frame));
     camera->screen_distance = 1.0;
-    camera->screen_width = (double)SCREEN_WIDTH / (double)SCREEN_HEIGHT;
-    camera->screen_height = 1.0;
+    camera->screen_width = 5 * (double)SCREEN_WIDTH / (double)SCREEN_HEIGHT;
+    camera->screen_height = 5 * 1.0;
 }
 
 //function to open a ppm file and read the data into a 1D array of colors
@@ -423,6 +449,14 @@ void normalize_vector(Vector *vector)
         vector->y /= length;
         vector->z /= length;
     }
+}
+
+//function to return a normalized copy of a vector
+Vector normalize_vector_copy(Vector *vector)
+{
+    Vector result = *vector;
+    normalize_vector(&result);
+    return result;
 }
 
 //compute the dot product of two vectors
@@ -662,6 +696,60 @@ int ray_intersects_plane(Ray *ray, Plane *plane, Point *intersection_point)
     return 0;
 }
 
+//function to get the color of the skybox seen by a ray
+//assumes checks for object intersection has already been done
+//skybox is represented by a cube map
+void get_skybox_color(Scene *scene, Vector *direction, Color *color)
+{
+    Vector dir = normalize_vector_copy(direction);
+    int best_face = -1;
+    double best_t = -1.0;
+    for (int face = 0; face < 6; face++)
+    {
+        double t = dot_product(&dir, &CUBEMAP_AXES[face]);
+        if (t > best_t)
+        {
+            best_t = t;
+            best_face = face;
+        }
+    }
+
+    //for testing, return a color based on which face was hit
+
+    //project the ray direction onto the axis for this direction
+    //create a vector that would be touching the surface of the cube map
+    Vector touching_cube_map = multiply_vectors_copy(&dir, &CUBEMAP_AXES[best_face]);
+    double scale_by = touching_cube_map.x + touching_cube_map.y + touching_cube_map.z;
+    scale_vector(&dir, 1.0 / scale_by);
+    double t = dot_product(&dir, &CUBEMAP_AXES[best_face]);
+    Vector projected_component = scale_vector_copy(&CUBEMAP_AXES[best_face], t);
+    Vector orthogonal_component = subtract_vectors_copy(&dir, &projected_component);
+    scale_vector(&orthogonal_component, 0.5); //cubemap faces are located a distance of 0.5 from the origin
+
+    //extract the 2D orthogonal coordinates representing the location on the selected cubemap face
+    double u = dot_product(&orthogonal_component, &CUBEMAP_AXES[(best_face + 2) % 6]);
+    double v = dot_product(&orthogonal_component, &CUBEMAP_AXES[(best_face + 4) % 6]);
+
+    // //testing
+    // Vector to_return = {u, v, 0.0}; //orthogonal_component; //CUBEMAP_AXES[best_face];
+    // Color face_color = {.r = 255 * (to_return.x / 2 + 0.5), .g = 255 * (to_return.y / 2 + 0.5), .b = 0 * (to_return.z / 2 + 0.5)};
+    // *color = face_color;
+    // return;
+
+    //check to ensure that u and v are within the range (-0.5, 0.5)
+    u = clamp(u, -0.5, 0.5);
+    v = clamp(v, -0.5, 0.5);
+
+    //convert the uv coordinates (-0.5, 0.5) into array indices based on the dimensions of the cubemap
+    int u_index = (int)((u + 0.5) * scene->skybox.dim);
+    int v_index = (int)((v + 0.5) * scene->skybox.dim);
+
+    //get the color of the selected cubemap face
+    //TODO->bicubic interpolation between the surrounding pixels in the texture
+    Color *face_texture = scene->skybox.colors[best_face];
+    *color = face_texture[u_index + v_index * scene->skybox.dim];
+}
+
 //break out function for computing the closest intersection point of an object in the scene
 //returns closest intersection point, normal of the intersection, and material of intersection point
 ObjectType trace_ray(Scene *scene, Ray *ray, Point *intersection, Vector *normal, Material *material)
@@ -701,30 +789,30 @@ ObjectType trace_ray(Scene *scene, Ray *ray, Point *intersection, Vector *normal
         }
     }
 
-    //check the ground if it is the closest intersection
-    if (ray_intersects_plane(ray, &(scene->ground), &point))
-    {
-        //efficiently compute distance from ray origin to intersection point
-        Vector ray_origin_plane_vector;
-        set_vector(&ray_origin_plane_vector,
-                   ray->origin.x - point.x,
-                   ray->origin.y - point.y,
-                   ray->origin.z - point.z);
-        double square_distance = dot_product(&ray_origin_plane_vector, &ray_origin_plane_vector);
-        if (square_distance < closest_distance)
-        {
-            closest_object = GROUND;
-            closest_distance = square_distance;
+    // //check the ground if it is the closest intersection
+    // if (ray_intersects_plane(ray, &(scene->ground), &point))
+    // {
+    //     //efficiently compute distance from ray origin to intersection point
+    //     Vector ray_origin_plane_vector;
+    //     set_vector(&ray_origin_plane_vector,
+    //                ray->origin.x - point.x,
+    //                ray->origin.y - point.y,
+    //                ray->origin.z - point.z);
+    //     double square_distance = dot_product(&ray_origin_plane_vector, &ray_origin_plane_vector);
+    //     if (square_distance < closest_distance)
+    //     {
+    //         closest_object = GROUND;
+    //         closest_distance = square_distance;
 
-            //assign the output values if they aren't null
-            closest_intersection = point;
-            closest_normal = scene->ground.normal;
+    //         //assign the output values if they aren't null
+    //         closest_intersection = point;
+    //         closest_normal = scene->ground.normal;
 
-            //ground material is a checker pattern based on if the intersection point's coordinates are even/odd
-            int odd = (int)(floor(point.x) + floor(point.z)) & 1;
-            closest_material = odd ? scene->ground.odd_material : scene->ground.even_material;
-        }
-    }
+    //         //ground material is a checker pattern based on if the intersection point's coordinates are even/odd
+    //         int odd = (int)(floor(point.x) + floor(point.z)) & 1;
+    //         closest_material = odd ? scene->ground.odd_material : scene->ground.even_material;
+    //     }
+    // }
 
     //TODO->check other object types
 
@@ -733,7 +821,11 @@ ObjectType trace_ray(Scene *scene, Ray *ray, Point *intersection, Vector *normal
     {
         closest_intersection = ray->origin;
         closest_normal = ray->direction;
-        closest_material = scene->sky;
+
+        //get the color of the skybox seen by the ray
+        Color sky_color;
+        get_skybox_color(scene, &ray->direction, &sky_color);
+        closest_material = (Material){.color = {.x = sky_color.r / 255.0, .y = sky_color.g / 255.0, .z = sky_color.b / 255.0}};
     }
     else
     {
@@ -1110,8 +1202,8 @@ int main()
     //initialize the screen buffer
     initialize_screenbuffer();
 
-    //load in the skybox to the global skybox. using milky_way cube map for now
-    load_skybox(&global_skybox, "milky_way");
+    //load in the skybox to the global skybox. //available maps are milky_way, colors, and uv_checker
+    load_skybox(&global_skybox, "uv_checker");
 
     // //set the skybox cleanup function to be called on ctrl-c
     signal(SIGINT, sigint_handler);
@@ -1169,7 +1261,8 @@ int main()
         .num_directional_lights = NUM_DIRECTIONAL_LIGHTS,
         .point_lights = point_lights,
         .num_point_lights = NUM_POINT_LIGHTS,
-        .sky = {.color = SKY_COLOR, .reflectivity = 0.0}};
+        .skybox = global_skybox,
+    };
 
     //pointer to the camera so we can update it every frame
     Camera *camera_ptr = &scene.camera;
@@ -1194,8 +1287,8 @@ int main()
         init_frame(&tf0);
         init_frame(&tf1);
         init_frame(&(scene.camera.frame));
-        rotate_basis_x(&tf0.basis, 2.0 * PI * t * -0.005);
-        rotate_basis_y(&tf0.basis, 2.0 * PI * t * 0.003);
+        rotate_basis_x(&tf0.basis, 2.0 * PI * t * -0.05);
+        rotate_basis_y(&tf0.basis, 2.0 * PI * t * 0.03);
         Vector root_to_camera = {.x = 0.0, .y = 0.0, .z = 1.99};
         add_vectors((Vector *)&tf1.origin, &root_to_camera);
         transform_frame(&scene.camera.frame, &tf1);
