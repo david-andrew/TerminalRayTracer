@@ -18,3 +18,4 @@ clang TerminalRayTracer.c -lm -O3 && ./a.out
  1. camera controls from keyboard input
  1. ~~materials~~
  1. other shapes
+ 1. GJK based collision physics

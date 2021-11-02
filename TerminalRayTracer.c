@@ -19,11 +19,11 @@
 //lengths are in meters
 
 //TODO->
-// make pixels use colored ascii characters based on brightness
-// set up the math for tracing rays around the scene
-// make the scene more complex (e.g. bouncing balls)
-// add proper lighting (lambertian and phong)
-// add shadows? tbd on if this isn't handled already by the ray tracer algorithm
+// rotate+flip all skybox maps so that they work without having to transform them after the fact (also look at changing the order of the skybox axes, e.g. +X,+Y,+Z,-X,-Y,-Z, instead of current order)
+// camera controls
+// move all ray tracing code to the GPU
+// add physics collisions (GJK algorithm)
+// heirarchy maps for objects for more efficient tracing and physics?
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -37,8 +37,8 @@
 #define EPSILON 0.000001
 
 //constants for the screen
-#define SCREEN_WIDTH 80
-#define SCREEN_HEIGHT 80
+#define SCREEN_WIDTH 480
+#define SCREEN_HEIGHT 280
 
 #define FRAME_RATE 60                                              //frames per second
 #define FRAME_DURATION 1.0 / FRAME_RATE                            //time between frames
