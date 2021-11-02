@@ -21,6 +21,7 @@
 //TODO->
 // rotate+flip all skybox maps so that they work without having to transform them after the fact (also look at changing the order of the skybox axes, e.g. +X,+Y,+Z,-X,-Y,-Z, instead of current order)
 // camera controls
+// skybox use bilinear interpolation between pixels
 // move all ray tracing code to the GPU
 // add physics collisions (GJK algorithm)
 // heirarchy maps for objects for more efficient tracing and physics?
