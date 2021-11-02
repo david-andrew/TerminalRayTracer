@@ -20,8 +20,9 @@
 
 //TODO->
 // rotate+flip all skybox maps so that they work without having to transform them after the fact (also look at changing the order of the skybox axes, e.g. +X,+Y,+Z,-X,-Y,-Z, instead of current order)
-// camera controls
 // skybox use bilinear interpolation between pixels
+// make reflectivity subtract from the color that a ray sees. i.e. 100% reflectivity means the ray doesn't see that object's color at all. 0% reflectivity means the ray sees that objects color * the lighting at the color
+// camera controls
 // move all ray tracing code to the GPU
 // add physics collisions (GJK algorithm)
 // heirarchy maps for objects for more efficient tracing and physics?
