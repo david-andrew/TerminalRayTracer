@@ -21,6 +21,11 @@
 //TODO->
 // rotate+flip all skybox maps so that they work without having to transform them after the fact (also look at changing the order of the skybox axes, e.g. +X,+Y,+Z,-X,-Y,-Z, instead of current order)
 // skybox use bilinear interpolation between pixels
+// add more skybox cubemaps from https://forum.kerbalspaceprogram.com/index.php?/topic/169919-110-poods-skyboxes-v130-17th-jan-2019/
+// --> https://spacedock.info/mod/926/Pood's%20Milky%20Way%20Skybox
+// --> https://spacedock.info/mod/925/Pood's%20Deep%20Star%20Map%20Skybox
+// --> https://spacedock.info/mod/924/Pood%27s%20Calm%20Nebula%20Skybox
+// take a look at this site copilot dreamed up: https://www.pbr-book.org/3ed-2018/contents
 // make reflectivity subtract from the color that a ray sees. i.e. 100% reflectivity means the ray doesn't see that object's color at all. 0% reflectivity means the ray sees that objects color * the lighting at the color
 // camera controls
 // move all ray tracing code to the GPU
